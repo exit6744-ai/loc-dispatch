@@ -193,7 +193,8 @@ function mmddToDate(d) { return new Date(YEAR, +d.slice(0, 2) - 1, +d.slice(2));
 function dateToMmdd(dt) { return ('0' + (dt.getMonth() + 1)).slice(-2) + ('0' + dt.getDate()).slice(-2); }
 function isoOf(dt) { return dt.getFullYear() + '-' + ('0' + (dt.getMonth() + 1)).slice(-2) + '-' + ('0' + dt.getDate()).slice(-2); }
 // 제목 클릭 → 오늘 근무일 (07:00 이전은 전날 근무일)
-function goToday() { const dt = new Date(); if (dt.getHours() < 7) dt.setDate(dt.getDate() - 1); closeBox(); load(dateToMmdd(dt)); }
+function todayMmdd() { const dt = new Date(); if (dt.getHours() < 7) dt.setDate(dt.getDate() - 1); if (dt.getDay() === 0) dt.setDate(dt.getDate() + 1); return dateToMmdd(dt); }   // 일요일 휴무 → 월요일
+function goToday() { closeBox(); load(todayMmdd()); }
 function shift(n) { const dt = mmddToDate(curD); dt.setDate(dt.getDate() + n); load(dateToMmdd(dt)); }
 function pick(v) { if (v) load(v.slice(5, 7) + v.slice(8, 10)); }
 
@@ -247,7 +248,7 @@ function syncOpenCard() {
 }
 function stampRefresh() {
   const n = new Date(), p = x => ('0' + x).slice(-2);
-  document.getElementById('lastRefresh').textContent = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds()) + ' · v21';
+  document.getElementById('lastRefresh').textContent = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds()) + ' · v22';
 }
 setInterval(() => { if (!document.hidden && curD) load(curD, true); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && curD) load(curD, true); });
@@ -554,7 +555,7 @@ run().withSuccessHandler(cfg => {
   try { if (KAKAO_JS_KEY && window.Kakao) { if (!Kakao.isInitialized()) Kakao.init(KAKAO_JS_KEY); kakaoReady = Kakao.isInitialized(); } } catch (e) {}
   if (kakaoReady) document.getElementById('kakaoBtn').style.display = 'block';
   if (MODE === 'admin') { document.getElementById('adminSettings').style.display = 'block'; document.getElementById('adminReset').style.display = 'block'; showSheetInfo(); }
-  load(curD || cfg.initialD);
+  load(curD || todayMmdd());
 }).withFailureHandler(e => { document.getElementById('info').textContent = '오류: ' + e.message; }).config();
 </script>
 </body>
