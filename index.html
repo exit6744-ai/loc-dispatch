@@ -248,7 +248,7 @@ function syncOpenCard() {
 }
 function stampRefresh() {
   const n = new Date(), p = x => ('0' + x).slice(-2);
-  document.getElementById('lastRefresh').textContent = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds()) + ' · v22';
+  document.getElementById('lastRefresh').textContent = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds()) + ' · v23';
 }
 setInterval(() => { if (!document.hidden && curD) load(curD, true); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && curD) load(curD, true); });
@@ -284,23 +284,30 @@ function applyServerProg(item, sp) {
 function requestProg(item, from, to, onOk) {
   const k = rkOf(item);
   if (busy[k] || item.cancelled) return;
-  busy[k] = true; say('처리중…'); render(); updateBox();
+  busy[k] = true;
+  // 빠르게: 화면은 먼저 바꾸고, 서버 기록은 뒤에서. 실패하면 되돌림
+  const raw0 = getProgRaw(), prev = raw0[k];
+  if (to) raw0[k] = { s: to, t: Date.now(), start: (prev && prev.start) || '', done: (prev && prev.done) || '' }; else delete raw0[k];
+  saveProgRaw(raw0);
+  const undoLocal = () => { const r = getProgRaw(); if (prev) r[k] = prev; else delete r[k]; saveProgRaw(r); };
+  render(); updateBox();
+  if (onOk) { try { onOk(); } catch (e) {} onOk = null; }
   const info = { d: curD, rk: k, veh: item.veh, title: item.title, route: item.route, n: item.n,
                  s: item.pending ? '' : item.s, time: item.time, from: from, to: to };
   const end = () => { delete busy[k]; render(); if (currentItem && rkOf(currentItem) === k) updateBox(); };
   run()
     .withSuccessHandler(r => {
       if (r && r.ok) { applyServerProg(item, r.prog); say(''); end(); if (onOk) onOk(); return; }
-      if (r && r.reason === 'busy') { say('먼저 진행중인 ' + r.other + '를 완료하세요'); end(); load(curD, true); return; }
+      if (r && r.reason === 'busy') { undoLocal(); say('먼저 진행중인 ' + r.other + '를 완료하세요'); end(); load(curD, true); return; }
       if (r && r.conflict) {
         applyServerProg(item, r.prog);
         const st = r.prog && r.prog.state;
         say(r.error === '취소된 배차' ? '취소된 배차입니다.' : st ? '이미 다른 곳에서 ' + STATE_NAME[st] + '입니다' : '이미 다른 곳에서 대기로 바뀌었습니다');
         end(); return;
       }
-      say('기록 실패 – 다시 눌러 주세요' + (r && r.error ? ' (' + r.error + ')' : '')); end();
+      undoLocal(); say('기록 실패 – 다시 눌러 주세요' + (r && r.error ? ' (' + r.error + ')' : '')); end();
     })
-    .withFailureHandler(() => { say('기록 실패 – 다시 눌러 주세요'); end(); })
+    .withFailureHandler(() => { undoLocal(); say('기록 실패 – 다시 눌러 주세요'); end(); })
     .logProgress(AUTH, info);
 }
 // 서버(진행요약)와 병합: 서버가 더 최근이면 서버 값
