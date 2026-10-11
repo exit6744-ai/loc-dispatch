@@ -60,6 +60,18 @@
   .set-cur { color: #666; font-size: 12px; margin-top: 4px; word-break: break-all; }
   .reset { width: 100%; padding: 12px; background: #eee; border: none; border-radius: 8px; }
   .skip { font-size: 12px; color: #888; margin: 8px 0 14px; white-space: pre-wrap; }
+  #board { display: none; background: #fff; border-radius: 12px; padding: 10px 12px; margin-bottom: 14px; }
+  .bd-title { font-weight: bold; font-size: 15px; margin-bottom: 6px; }
+  .bd-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid #eee; cursor: pointer; }
+  .bd-row:first-of-type { border-top: none; }
+  .bd-main { flex: 1; min-width: 0; }
+  .bd-veh { font-weight: bold; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bd-sub { font-size: 12px; color: #555; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bd-badge { font-size: 12px; font-weight: bold; padding: 4px 8px; border-radius: 12px; white-space: nowrap; }
+  .bd-badge.run { background: #1e88e5; color: #fff; }
+  .bd-badge.wait { background: #fee500; color: #3c1e1e; }
+  .bd-badge.end { background: #9e9e9e; color: #fff; }
+  .bd-cnt { font-size: 11px; color: #888; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -72,6 +84,7 @@
 <div class="info" id="info">불러오는 중…</div>
 <div class="refresh" id="lastRefresh"></div>
 <div class="status" id="status"></div>
+<div id="board"></div>
 <div id="msgBox">
   <div id="timeLine"></div>
   <div id="diffLine"></div>
@@ -255,7 +268,7 @@ function syncOpenCard() {
 }
 function stampRefresh() {
   const n = new Date(), p = x => ('0' + x).slice(-2);
-  document.getElementById('lastRefresh').textContent = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds()) + ' · v26';
+  document.getElementById('lastRefresh').textContent = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds()) + ' · v27';
 }
 setInterval(() => { if (!document.hidden && curD) load(curD, true); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && curD) load(curD, true); });
@@ -387,7 +400,41 @@ function updateBox() {
   showTimes(item);
 }
 
-function render() { renderCards(); placeBox(); }
+function render() { renderCards(); renderBoard(); placeBox(); }
+// 관리자: 차량 현황 (차량마다 1줄. 진행중 → 대기 → 끝 순)
+function renderBoard() {
+  const el = document.getElementById('board');
+  if (MODE !== 'admin') { el.style.display = 'none'; return; }
+  const prog = getProg(), rows = [];
+  for (const [veh, items] of Object.entries(data || {})) {
+    if (/차량 미정/.test(veh)) continue;
+    const list = [...items].sort((a, b) => a.min - b.min), live = list.filter(x => !x.cancelled);
+    const runIt = live.find(x => prog[rkOf(x)] === 'run');
+    const done = live.filter(x => prog[rkOf(x)] === 'done').length;
+    const next = live.find(x => !prog[rkOf(x)]);
+    const rank = runIt ? 0 : (done < live.length ? 1 : 2);
+    const firstMin = live.length ? live[0].min : 99999;
+    rows.push({ veh, runIt, next, done, total: live.length, rank, firstMin });
+  }
+  if (!rows.length) { el.style.display = 'none'; return; }
+  rows.sort((a, b) => a.rank - b.rank || a.firstMin - b.firstMin);
+  const startOf = it => { const k = rkOf(it), v = progInfo(it); return v.start || (serverProg[k] && serverProg[k].start) || ''; };
+  el.innerHTML = '<div class="bd-title">차량 현황</div>' + rows.map((r, i) => {
+    const badge = r.rank === 0 ? '<span class="bd-badge run">▶ 진행중</span>' : r.rank === 1 ? '<span class="bd-badge wait">대기</span>' : '<span class="bd-badge end">오늘 배차 끝</span>';
+    const subs = [];
+    if (r.runIt) subs.push('▶ ' + jobName(r.runIt) + (startOf(r.runIt) ? ' · ' + startOf(r.runIt) + ' 시작' : ''));
+    if (r.next) subs.push('다음 ' + jobName(r.next) + (r.next.first ? ' ' + r.next.first : ''));
+    return '<div class="bd-row" data-i="' + i + '"><div class="bd-main"><div class="bd-veh">' + esc(r.veh) + '</div>' +
+      (subs.length ? '<div class="bd-sub">' + esc(subs.join('  ·  ')) + '</div>' : '') + '</div>' +
+      '<div style="text-align:right">' + badge + '<div class="bd-cnt">완료 ' + r.done + '/' + r.total + '</div></div></div>';
+  }).join('');
+  el.querySelectorAll('.bd-row').forEach(rowEl => rowEl.onclick = () => {
+    const veh = rows[+rowEl.dataset.i].veh;
+    const g = [...document.querySelectorAll('#container .group')].find(x => x.dataset.veh === veh);
+    if (g) g.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  el.style.display = 'block';
+}
 // 메시지 상자를 누른 카드 바로 아래에 붙임 (스크롤 안 움직이게)
 function placeBox() {
   const mb = document.getElementById('msgBox');
@@ -402,7 +449,7 @@ function renderCards() {
   c.innerHTML = '';
   const st = getSent(), prog = getProg();
   for (const [vehicle, items] of Object.entries(data)) {
-    const div = document.createElement('div'); div.className = 'group';
+    const div = document.createElement('div'); div.className = 'group'; div.dataset.veh = vehicle;
     const t = document.createElement('div'); t.className = 'group-title'; t.textContent = vehicle + ' (' + items.length + ')';
     div.appendChild(t);
     [...items].sort((a, b) => a.min - b.min).forEach(item => {
