@@ -63,7 +63,7 @@
 </style>
 </head>
 <body>
-<h1>Kora_LOC 운송 일정<span id="carTag"></span></h1>
+<h1 onclick="goToday()" style="cursor:pointer">Kora_LOC 운송 일정<span id="carTag"></span></h1>
 <div class="nav">
   <button onclick="shift(-1)">◀ 전날</button>
   <input type="date" id="datePick" onchange="pick(this.value)">
@@ -192,6 +192,8 @@ function say(t) { document.getElementById('status').textContent = t; }
 function mmddToDate(d) { return new Date(YEAR, +d.slice(0, 2) - 1, +d.slice(2)); }
 function dateToMmdd(dt) { return ('0' + (dt.getMonth() + 1)).slice(-2) + ('0' + dt.getDate()).slice(-2); }
 function isoOf(dt) { return dt.getFullYear() + '-' + ('0' + (dt.getMonth() + 1)).slice(-2) + '-' + ('0' + dt.getDate()).slice(-2); }
+// 제목 클릭 → 오늘 근무일 (07:00 이전은 전날 근무일)
+function goToday() { const dt = new Date(); if (dt.getHours() < 7) dt.setDate(dt.getDate() - 1); closeBox(); load(dateToMmdd(dt)); }
 function shift(n) { const dt = mmddToDate(curD); dt.setDate(dt.getDate() + n); load(dateToMmdd(dt)); }
 function pick(v) { if (v) load(v.slice(5, 7) + v.slice(8, 10)); }
 
@@ -245,7 +247,7 @@ function syncOpenCard() {
 }
 function stampRefresh() {
   const n = new Date(), p = x => ('0' + x).slice(-2);
-  document.getElementById('lastRefresh').textContent = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds()) + ' · v20';
+  document.getElementById('lastRefresh').textContent = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds()) + ' · v21';
 }
 setInterval(() => { if (!document.hidden && curD) load(curD, true); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && curD) load(curD, true); });
