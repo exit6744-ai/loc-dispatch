@@ -248,7 +248,7 @@ function syncOpenCard() {
 }
 function stampRefresh() {
   const n = new Date(), p = x => ('0' + x).slice(-2);
-  document.getElementById('lastRefresh').textContent = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds()) + ' · v23';
+  document.getElementById('lastRefresh').textContent = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds()) + ' · v24';
 }
 setInterval(() => { if (!document.hidden && curD) load(curD, true); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && curD) load(curD, true); });
@@ -366,7 +366,7 @@ function updateBox() {
   const pr = curProg(item), isBusy = !!busy[rkOf(item)];
   const sb = document.getElementById('stateBtn'), ub = document.getElementById('undoBtn');
   sb.style.display = pr === 'done' ? 'none' : 'block';
-  sb.textContent = isBusy ? '⏳ 처리중…' : pr === 'run' ? '✔ 완료 처리' : '▶ 진행 시작';
+  sb.textContent = pr === 'run' ? '✔ 완료 처리' : '▶ 진행 시작';
   sb.className = 'state-btn' + (pr === 'run' ? ' to-done' : '');
   const o = (pr === '' || pr === 'done') ? otherRunning(item) : null;
   sb.disabled = isBusy || (pr === '' && !!o);
@@ -412,7 +412,6 @@ function renderCards() {
       // 보냄 표시 없음 (보내기 = 진행중)
       if (changed) { cls += ' changed'; label += '  ⚠ 변경됨'; }
       const isBusy = !!busy[rkOf(item)];
-      if (isBusy) label += '  ⏳';
       b.className = cls; b.textContent = label;
       b.dataset.rk = rkOf(item);
       b.onclick = () => tapCard(item);     // 완료도 열림 (읽기 전용) — 회색은 CSS로만
