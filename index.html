@@ -151,7 +151,7 @@ function run() {
 }
 // 카톡 메시지 맨 위 안내 (상차 현장 준비용)
 const MSG_HEAD = '🚚 곧 도착합니다. (약 5분 후)';
-const outMsg = m => MSG_HEAD + '\n\n' + m.replace(/^([^\n]*)\n\s*\n(→)/, '$1\n$2');
+const outMsg = m => m.replace(/^([^\n]*)\n\s*\n(→)/, '$1\n$2').replace(/\s+$/, '') + '\n\n' + MSG_HEAD;
 let data = {}, currentMsg = '', currentId = null, currentItem = null;
 const YEAR = new Date().getFullYear();
 
