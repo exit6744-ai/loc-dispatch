@@ -150,7 +150,7 @@ function run() {
   return o;
 }
 // 카톡 메시지 맨 위 안내 (상차 현장 준비용)
-const MSG_HEAD = '🚚 5분 후 도착 예정입니다.\n상차 준비 부탁드립니다.\n\n';
+const MSG_HEAD = '🚚 곧 도착합니다. (약 5분 후)\n\n';
 const outMsg = m => MSG_HEAD + m;
 let data = {}, currentMsg = '', currentId = null, currentItem = null;
 const YEAR = new Date().getFullYear();
