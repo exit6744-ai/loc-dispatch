@@ -248,7 +248,7 @@ function syncOpenCard() {
 }
 function stampRefresh() {
   const n = new Date(), p = x => ('0' + x).slice(-2);
-  document.getElementById('lastRefresh').textContent = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds()) + ' · v24';
+  document.getElementById('lastRefresh').textContent = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds()) + ' · v25';
 }
 setInterval(() => { if (!document.hidden && curD) load(curD, true); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && curD) load(curD, true); });
@@ -317,6 +317,8 @@ function mergeProgress(server) {
   serverProg = server || {};
   if (!server) return;
   const p = getProgRaw();
+  // 서버(진행요약)에 없는 카드키 = 서버 기준 대기 → 로컬에 남은 진행중/완료 지움 (처리중 요청 제외)
+  for (const k in p) if (!(k in server) && !busy[k]) delete p[k];
   for (const k in server) {
     const sv = server[k], lv = p[k];
     const lt = lv && typeof lv === 'object' ? lv.t || 0 : 0;
