@@ -35,6 +35,7 @@
   .refresh { text-align: center; font-size: 12px; color: #888; margin: -6px 0 6px; }
   .btn.run { background: #1e88e5; color: #fff; }
   .btn.done { background: #9e9e9e; color: #fff; }
+  .btn.shared { background: #cfe2f3; color: #1a3550; }
   .btn.changed { background: #e53935; color: #fff; }
   .btn:disabled { opacity: 1; }
   #timeLine { display: none; font-size: 12px; color: #1e88e5; margin-bottom: 6px; }
@@ -69,6 +70,8 @@
   .bd-sub { font-size: 12px; color: #555; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .bd-badge { font-size: 12px; font-weight: bold; padding: 4px 8px; border-radius: 12px; white-space: nowrap; }
   .bd-badge.run { background: #1e88e5; color: #fff; }
+  .bd-badge.shared { background: #cfe2f3; color: #1a3550; }
+  .bd-late { font-size: 12px; color: #e53935; font-weight: bold; margin-top: 2px; }
   .bd-badge.wait { background: #fee500; color: #3c1e1e; }
   .bd-badge.end { background: #9e9e9e; color: #fff; }
   .bd-cnt { font-size: 11px; color: #888; white-space: nowrap; }
@@ -268,7 +271,7 @@ function syncOpenCard() {
 }
 function stampRefresh() {
   const n = new Date(), p = x => ('0' + x).slice(-2);
-  document.getElementById('lastRefresh').textContent = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds()) + ' · v27';
+  document.getElementById('lastRefresh').textContent = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds()) + ' · v28';
 }
 setInterval(() => { if (!document.hidden && curD) load(curD, true); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && curD) load(curD, true); });
@@ -282,7 +285,7 @@ function resetAll() {
   say('초기화됨'); setTimeout(() => say(''), 2000);
 }
 
-// 진행 상태: 대기(없음) → 'run' 진행중 → 'done' 완료.  날짜별, 카드키(노선|차수[|야간])로 저장 → S번호가 새로 나와도 유지
+// 진행 상태: 대기(없음) → 'shared' 공유됨(카톡 보내기) → 'run' 운행중 → 'done' 완료 (대기→운행중 바로도 가능).  날짜별, 카드키(노선|차수[|야간])로 저장 → S번호가 새로 나와도 유지
 const progKey = () => 'prog_' + curD;
 // 저장형식: {카드키: {s:'run'|'done', t:ms, start:'HH:MM', done:'HH:MM'}}  (예전 문자열 값도 읽음)
 const getProgRaw = () => { try { return JSON.parse(localStorage.getItem(progKey())) || {}; } catch (e) { return {}; } };
@@ -292,10 +295,10 @@ function saveProgRaw(p) { localStorage.setItem(progKey(), JSON.stringify(p)); }
 const hmNow = () => { const n = new Date(); return ('0' + n.getHours()).slice(-2) + ':' + ('0' + n.getMinutes()).slice(-2); };
 // 상태 변경은 서버 확인 후에만 반영 (서버가 기준). busy: 처리중인 카드키
 const busy = {};
-const STATE_NAME = { '': '대기', run: '진행중', done: '완료' };
+const STATE_NAME = { '': '대기', shared: '공유됨', run: '운행중', done: '완료' };
 function applyServerProg(item, sp) {
   const p = getProgRaw(), k = rkOf(item);
-  if (sp && sp.state) p[k] = { s: sp.state, t: sp.ts || Date.now(), start: sp.start || '', done: sp.done || '' };
+  if (sp && sp.state) p[k] = { s: sp.state, t: sp.ts || Date.now(), start: sp.start || '', done: sp.done || '', shared: sp.shared || '' };
   else delete p[k];
   saveProgRaw(p);
   serverProg[k] = sp || {};
@@ -307,7 +310,8 @@ function requestProg(item, from, to, onOk) {
   busy[k] = true;
   // 빠르게: 화면은 먼저 바꾸고, 서버 기록은 뒤에서. 실패하면 되돌림
   const raw0 = getProgRaw(), prev = raw0[k];
-  if (to) raw0[k] = { s: to, t: Date.now(), start: (prev && prev.start) || '', done: (prev && prev.done) || '' }; else delete raw0[k];
+  if (to) raw0[k] = { s: to, t: Date.now(), start: (prev && prev.start) || '', done: (prev && prev.done) || '',
+                      shared: to === 'shared' && !(prev && prev.shared) ? hmNow() : (prev && prev.shared) || '' }; else delete raw0[k];
   saveProgRaw(raw0);
   const undoLocal = () => { const r = getProgRaw(); if (prev) r[k] = prev; else delete r[k]; saveProgRaw(r); };
   render(); updateBox();
@@ -318,7 +322,7 @@ function requestProg(item, from, to, onOk) {
   run()
     .withSuccessHandler(r => {
       if (r && r.ok) { applyServerProg(item, r.prog); say(''); end(); if (onOk) onOk(); return; }
-      if (r && r.reason === 'busy') { undoLocal(); say('먼저 진행중인 ' + r.other + '를 완료하세요'); end(); load(curD, true); return; }
+      if (r && r.reason === 'busy') { undoLocal(); say('먼저 운행중인 ' + r.other + '를 완료하세요'); end(); load(curD, true); return; }
       if (r && r.conflict) {
         applyServerProg(item, r.prog);
         const st = r.prog && r.prog.state;
@@ -343,7 +347,7 @@ function mergeProgress(server) {
     const sv = server[k], lv = p[k];
     const lt = lv && typeof lv === 'object' ? lv.t || 0 : 0;
     if (!lv || sv.ts >= lt) {
-      if (sv.state) p[k] = { s: sv.state, t: sv.ts, start: sv.start, done: sv.done }; else delete p[k];
+      if (sv.state) p[k] = { s: sv.state, t: sv.ts, start: sv.start, done: sv.done, shared: sv.shared || '' }; else delete p[k];
     }
   }
   saveProgRaw(p);
@@ -365,9 +369,9 @@ const jobName = x => x.route + ' ' + x.n + '차';
 function boxStateTap() {
   const item = currentItem; if (!item || debounced() || busy[rkOf(item)]) return;
   const pr = curProg(item);
-  const o = (pr === '') ? otherRunning(item) : null;
-  if (o) { say('먼저 진행중인 ' + jobName(o) + '를 완료하세요'); return; }
-  if (pr === '') requestProg(item, '', 'run', () => say('진행 시작했어요.'));
+  const o = (pr === '' || pr === 'shared') ? otherRunning(item) : null;   // 운행 시작만 막음 (차량당 운행중 1건)
+  if (o) { say('먼저 운행중인 ' + jobName(o) + '를 완료하세요'); return; }
+  if (pr === '' || pr === 'shared') requestProg(item, pr, 'run', () => say('운행 시작했어요.'));
   else if (pr === 'run') requestProg(item, 'run', 'done', () => { closeBox(); say('완료 처리했어요.'); });
 }
 function boxUndoTap() {
@@ -375,10 +379,14 @@ function boxUndoTap() {
   const pr = curProg(item);
   if (pr === 'done') {
     const o = otherRunning(item);
-    if (o) { say('먼저 진행중인 ' + jobName(o) + '를 완료하세요'); return; }
-    requestProg(item, 'done', 'run', () => say('진행중으로 되돌렸어요.'));
+    if (o) { say('먼저 운행중인 ' + jobName(o) + '를 완료하세요'); return; }
+    requestProg(item, 'done', 'run', () => say('운행중으로 되돌렸어요.'));
   }
-  else if (pr === 'run') requestProg(item, 'run', '', () => say('대기로 되돌렸어요.'));
+  else if (pr === 'run') {   // 공유했던 카드는 공유됨으로, 아니면 대기로
+    if (progInfo(item).shared) requestProg(item, 'run', 'shared', () => say('공유됨으로 되돌렸어요.'));
+    else requestProg(item, 'run', '', () => say('대기로 되돌렸어요.'));
+  }
+  else if (pr === 'shared') requestProg(item, 'shared', '', () => say('대기로 되돌렸어요.'));
   else if (sentState(item).state !== 'none') { unSent(item); render(); updateBox(); say('보냄 표시를 지웠어요.'); }
 }
 function closeBox() { document.getElementById('msgBox').style.display = 'none'; currentItem = null; currentMsg = ''; currentId = null; say(''); }
@@ -388,45 +396,62 @@ function updateBox() {
   const pr = curProg(item), isBusy = !!busy[rkOf(item)];
   const sb = document.getElementById('stateBtn'), ub = document.getElementById('undoBtn');
   sb.style.display = pr === 'done' ? 'none' : 'block';
-  sb.textContent = pr === 'run' ? '✔ 완료 처리' : '▶ 진행 시작';
+  sb.textContent = pr === 'run' ? '✔ 완료 처리' : '▶ 운행 시작 (상차 완료 후)';
   sb.className = 'state-btn' + (pr === 'run' ? ' to-done' : '');
-  const o = (pr === '' || pr === 'done') ? otherRunning(item) : null;
-  sb.disabled = isBusy || (pr === '' && !!o);
+  const o = (pr === '' || pr === 'shared' || pr === 'done') ? otherRunning(item) : null;
+  sb.disabled = isBusy || ((pr === '' || pr === 'shared') && !!o);
   ub.style.display = (pr || sentState(item).state !== 'none') ? 'block' : 'none'; ub.disabled = isBusy || (pr === 'done' && !!o);
   document.getElementById('boxState').textContent = '현재 상태: ' + STATE_NAME[pr] + (pr === 'done' ? ' (보내기 잠김 · 되돌리기만 가능)' : '') +
-    (o ? '\n먼저 진행중인 ' + jobName(o) + '를 완료하세요' : '');
+    (o ? '\n운행 시작 전에 먼저 운행중인 ' + jobName(o) + '를 완료하세요 (카톡 공유는 가능)' : '');
   applyPending(item);
-  if (pr === 'done' || (pr === '' && !!o)) document.getElementById('sendBtn').disabled = true;
+  if (pr === 'done') document.getElementById('sendBtn').disabled = true;   // 공유는 다른 카드 운행중이어도 가능
   showTimes(item);
 }
 
 function render() { renderCards(); renderBoard(); placeBox(); }
-// 관리자: 차량 현황 (차량마다 1줄. 진행중 → 대기 → 끝 순)
+// 관리자: 차량 현황 (차량마다 1줄. 운행중 → 공유됨 → 대기 → 끝 순)
+// 납입 예정 시각: 근무일(curD) + 납입시간, 07:00 이전·24:00 이후 = 다음날 (근무일 07:00~25:50)
+function dueTime(item) {
+  const t = String(item.first || item.time || '').match(/(\d{1,2}):(\d{2})/);
+  if (!t || !/^\d{4}$/.test(curD)) return null;
+  const now = new Date(); let y = now.getFullYear();
+  let base = new Date(y, +curD.slice(0, 2) - 1, +curD.slice(2));
+  if (base - now > 180 * 864e5) base = new Date(y - 1, base.getMonth(), base.getDate());
+  else if (now - base > 180 * 864e5) base = new Date(y + 1, base.getMonth(), base.getDate());
+  const h = +t[1];
+  return new Date(base.getTime() + ((h < 7 ? h + 24 : h) * 60 + +t[2]) * 60000);
+}
 function renderBoard() {
   const el = document.getElementById('board');
   if (MODE !== 'admin') { el.style.display = 'none'; return; }
-  const prog = getProg(), rows = [];
+  const prog = getProg(), rows = [], now = Date.now();
   for (const [veh, items] of Object.entries(data || {})) {
     if (/차량 미정/.test(veh)) continue;
     const list = [...items].sort((a, b) => a.min - b.min), live = list.filter(x => !x.cancelled);
     const runIt = live.find(x => prog[rkOf(x)] === 'run');
+    const shIt = live.find(x => prog[rkOf(x)] === 'shared');
     const done = live.filter(x => prog[rkOf(x)] === 'done').length;
     const next = live.find(x => !prog[rkOf(x)]);
-    const rank = runIt ? 0 : (done < live.length ? 1 : 2);
+    const late = live.filter(x => prog[rkOf(x)] !== 'done' && (d => d && d.getTime() < now)(dueTime(x)));
+    const rank = runIt ? 0 : shIt ? 1 : (done < live.length ? 2 : 3);
     const firstMin = live.length ? live[0].min : 99999;
-    rows.push({ veh, runIt, next, done, total: live.length, rank, firstMin });
+    rows.push({ veh, runIt, shIt, next, late, done, total: live.length, rank, firstMin });
   }
   if (!rows.length) { el.style.display = 'none'; return; }
   rows.sort((a, b) => a.rank - b.rank || a.firstMin - b.firstMin);
-  const startOf = it => { const k = rkOf(it), v = progInfo(it); return v.start || (serverProg[k] && serverProg[k].start) || ''; };
+  const fld = (it, f) => { const k = rkOf(it), v = progInfo(it); return v[f] || (serverProg[k] && serverProg[k][f]) || ''; };
+  const BADGE = ['<span class="bd-badge run">▶ 운행중</span>', '<span class="bd-badge shared">📤 공유됨</span>',
+                 '<span class="bd-badge wait">대기</span>', '<span class="bd-badge end">오늘 배차 끝</span>'];
   el.innerHTML = '<div class="bd-title">차량 현황</div>' + rows.map((r, i) => {
-    const badge = r.rank === 0 ? '<span class="bd-badge run">▶ 진행중</span>' : r.rank === 1 ? '<span class="bd-badge wait">대기</span>' : '<span class="bd-badge end">오늘 배차 끝</span>';
     const subs = [];
-    if (r.runIt) subs.push('▶ ' + jobName(r.runIt) + (startOf(r.runIt) ? ' · ' + startOf(r.runIt) + ' 시작' : ''));
+    if (r.runIt) subs.push('▶ ' + jobName(r.runIt) + (fld(r.runIt, 'start') ? ' · ' + fld(r.runIt, 'start') + ' 시작' : ''));
+    else if (r.shIt) subs.push('📤 ' + jobName(r.shIt) + (fld(r.shIt, 'shared') ? ' · ' + fld(r.shIt, 'shared') + ' 공유' : ''));
     if (r.next) subs.push('다음 ' + jobName(r.next) + (r.next.first ? ' ' + r.next.first : ''));
+    const lateTxt = r.late.length ? '⚠ 납입시간 지남: ' + r.late.map(x => jobName(x) + (x.first ? ' ' + x.first : '')).join(', ') : '';
     return '<div class="bd-row" data-i="' + i + '"><div class="bd-main"><div class="bd-veh">' + esc(r.veh) + '</div>' +
-      (subs.length ? '<div class="bd-sub">' + esc(subs.join('  ·  ')) + '</div>' : '') + '</div>' +
-      '<div style="text-align:right">' + badge + '<div class="bd-cnt">완료 ' + r.done + '/' + r.total + '</div></div></div>';
+      (subs.length ? '<div class="bd-sub">' + esc(subs.join('  ·  ')) + '</div>' : '') +
+      (lateTxt ? '<div class="bd-late">' + esc(lateTxt) + '</div>' : '') + '</div>' +
+      '<div style="text-align:right">' + BADGE[r.rank] + '<div class="bd-cnt">완료 ' + r.done + '/' + r.total + '</div></div></div>';
   }).join('');
   el.querySelectorAll('.bd-row').forEach(rowEl => rowEl.onclick = () => {
     const veh = rows[+rowEl.dataset.i].veh;
@@ -464,7 +489,8 @@ function renderCards() {
         b.disabled = true; div.appendChild(b); return;
       }
       if (pr === 'done') { cls += ' done'; label += '  ✔ 완료'; }
-      else if (pr === 'run') { cls += ' run'; label += '  ▶ 진행중'; }
+      else if (pr === 'run') { cls += ' run'; label += '  ▶ 운행중'; }
+      else if (pr === 'shared') { cls += ' shared'; label += '  📤 공유됨'; }
       // 보냄 표시 없음 (보내기 = 진행중)
       if (changed) { cls += ' changed'; label += '  ⚠ 변경됨'; }
       const isBusy = !!busy[rkOf(item)];
@@ -486,7 +512,7 @@ function showTimes(item) {
   const el = document.getElementById('timeLine');
   if (MODE !== 'admin' || !item) { el.style.display = 'none'; return; }
   const pi = progInfo(item);
-  el.textContent = '시작 ' + (pi.start || '–') + ' · 완료 ' + (pi.done || '–');
+  el.textContent = '공유 ' + (pi.shared || '–') + ' · 운행 시작 ' + (pi.start || '–') + ' · 완료 ' + (pi.done || '–');
   el.style.display = 'block';
 }
 function showMsg(item) {
@@ -506,11 +532,11 @@ function showMsg(item) {
   try { box.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {}
   say(curProg(item) === 'done' ? '완료된 배차예요 (읽기 전용).' : '');
 }
-// 카톡 보내기 = 진행 시작 (대기일 때만)
+// 카톡 보내기 = 배차 공유 (대기일 때만 → 공유됨). 운행 시작은 따로
 function sentAndRun() {
   const item = currentItem; if (!item) return;
   setSent(item); document.getElementById('diffLine').style.display = 'none';
-  if (curProg(item) === '') requestProg(item, '', 'run', () => {}); else render();
+  if (curProg(item) === '') requestProg(item, '', 'shared', () => {}); else render();
 }
 function markSent() { if (currentItem) { setSent(currentItem); document.getElementById('diffLine').style.display = 'none'; render(); } }
 
@@ -555,8 +581,7 @@ function openKakaoApp(text) {
 
 async function sendKakao() {
   if (!currentMsg || (currentItem && (currentItem.pending || curProg(currentItem) === 'done'))) return;
-  // 같은 차량에 진행중 배차가 있으면 보내기 막음 (차량당 진행중 1건)
-  if (currentItem && curProg(currentItem) === '') { const o = otherRunning(currentItem); if (o) { say('먼저 진행중인 ' + jobName(o) + '를 완료하세요'); return; } }
+  // v28: 보내기(공유)는 같은 차량에 운행중 배차가 있어도 가능 (운행 시작만 막음)
   // 1순위: 최상위 창(iframe 아님)이고 공유 기능이 있으면 휴대폰 공유창
   if (!IN_IFRAME && !IS_ANDROID && navigator.share) {   // 안드로이드는 카톡 공유 인텐트(kakaoShareIntent)가 1순위
     try { await navigator.share({ text: currentMsg }); sentAndRun(); say('보냈어요.'); return; }
