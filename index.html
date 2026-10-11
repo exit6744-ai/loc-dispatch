@@ -162,10 +162,17 @@ function unSent(item) {
     try { const o = JSON.parse(localStorage.getItem(key)); if (o && o.sid && o.sid[item.id] != null) { delete o.sid[item.id]; localStorage.setItem(key, JSON.stringify(o)); } } catch (e) {}
   }
 }
+// v26: 같은 노선|차수 카드가 여럿이면 서버가 키에 차량번호를 붙임 (노선|차수|#5833, item.rkBase = 예전 키).
+// 예전 키로 저장된 보냄 기록은 보낸 문구에 이 카드 차량번호가 들어 있을 때만 이 카드 것으로 봄 (애매하면 무시)
+function oldRkSent_(item, st) {
+  if (!item.rkBase) return undefined;
+  const o = st.rk[item.rkBase], m = String(item.veh || '').match(/\d{4}(?!.*\d{4})/);
+  return o && m && String(o.msg || '').indexOf(m[0]) >= 0 ? o : undefined;
+}
 // 반환: {state:'none'|'sent'|'changed', prev: 이전 보낸 텍스트}
 function sentState(item, st) {
   st = st || getSent();
-  const bySid = st.sid[item.id], byRk = st.rk[rkOf(item)];
+  const bySid = st.sid[item.id], byRk = st.rk[rkOf(item)] || oldRkSent_(item, st);
   if (bySid != null) return bySid === item.msg ? { state: 'sent' } : { state: 'changed', prev: bySid };
   if (byRk && byRk.s !== item.id) return { state: 'changed', prev: byRk.msg };
   return { state: 'none' };
@@ -248,7 +255,7 @@ function syncOpenCard() {
 }
 function stampRefresh() {
   const n = new Date(), p = x => ('0' + x).slice(-2);
-  document.getElementById('lastRefresh').textContent = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds()) + ' · v25';
+  document.getElementById('lastRefresh').textContent = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds()) + ' · v26';
 }
 setInterval(() => { if (!document.hidden && curD) load(curD, true); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && curD) load(curD, true); });
