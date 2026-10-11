@@ -245,7 +245,7 @@ function syncOpenCard() {
 }
 function stampRefresh() {
   const n = new Date(), p = x => ('0' + x).slice(-2);
-  document.getElementById('lastRefresh').textContent = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds()) + ' · v18';
+  document.getElementById('lastRefresh').textContent = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds()) + ' · v19';
 }
 setInterval(() => { if (!document.hidden && curD) load(curD, true); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && curD) load(curD, true); });
@@ -336,7 +336,7 @@ function boxStateTap() {
   const o = (pr === '') ? otherRunning(item) : null;
   if (o) { say('먼저 진행중인 ' + jobName(o) + '를 완료하세요'); return; }
   if (pr === '') requestProg(item, '', 'run', () => say('진행 시작했어요.'));
-  else if (pr === 'run') requestProg(item, 'run', 'done', () => say('완료 처리했어요.'));
+  else if (pr === 'run') requestProg(item, 'run', 'done', () => { closeBox(); say('완료 처리했어요.'); });
 }
 function boxUndoTap() {
   const item = currentItem; if (!item || debounced() || busy[rkOf(item)]) return;
