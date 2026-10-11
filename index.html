@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>배차 카톡 보내기</title>
+<title>Kora_LOC 운송 일정</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="배차 카톡">
@@ -63,7 +63,7 @@
 </style>
 </head>
 <body>
-<h1>배차 카톡 보내기<span id="carTag"></span></h1>
+<h1>Kora_LOC 운송 일정<span id="carTag"></span></h1>
 <div class="nav">
   <button onclick="shift(-1)">◀ 전날</button>
   <input type="date" id="datePick" onchange="pick(this.value)">
@@ -245,7 +245,7 @@ function syncOpenCard() {
 }
 function stampRefresh() {
   const n = new Date(), p = x => ('0' + x).slice(-2);
-  document.getElementById('lastRefresh').textContent = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds()) + ' · v19';
+  document.getElementById('lastRefresh').textContent = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds()) + ' · v20';
 }
 setInterval(() => { if (!document.hidden && curD) load(curD, true); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && curD) load(curD, true); });
