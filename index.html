@@ -227,10 +227,23 @@ function goToday() { closeBox(); load(todayMmdd()); }
 function shift(n) { const dt = mmddToDate(curD); dt.setDate(dt.getDate() + n); load(dateToMmdd(dt)); }
 function pick(v) { if (v) load(v.slice(5, 7) + v.slice(8, 10)); }
 
-let loading = false;
+let loading = false, reqSeq = 0, showingStale = false;
+// stale-while-revalidate: 차량(또는 관리자)+날짜별 마지막 getCards 응답을 저장 → 바로 그려 두고 새 응답으로 교체
+const WHO = AUTH.key ? 'admin' : ('car' + (AUTH.car || ''));
+const gcKey = d => 'gc_' + WHO + '_' + d;
+function saveGc(res) { try { localStorage.setItem(gcKey(res.d), JSON.stringify(res)); } catch (e) {} }
+function loadGc(d) { try { const r = JSON.parse(localStorage.getItem(gcKey(d))); return r && r.ok && r.d === d ? r : null; } catch (e) { return null; } }
+function showRes(res) {
+  data = res.groups;
+  document.getElementById('info').textContent = res.d + ' (' + res.date + ') · ' + res.count + '건 · 배차 버튼 → [카톡으로 보내기] → 방 선택';
+  if (res.skipped.length) document.getElementById('skipped').textContent = '제외: \n' + res.skipped.join('\n');
+  else document.getElementById('skipped').textContent = '';
+  render();
+}
 function load(d, silent) {
   if (silent && loading) return;
   loading = true;
+  const seq = ++reqSeq;
   if (!silent) {
     curD = d; data = {};
     document.getElementById('datePick').value = isoOf(mmddToDate(d));
@@ -239,22 +252,33 @@ function load(d, silent) {
     document.getElementById('container').innerHTML = '';
     document.getElementById('skipped').textContent = '';
     document.getElementById('info').textContent = d + ' 불러오는 중…';
+    showingStale = false;
+    const st = loadGc(d);
+    if (st) {   // 저장본 먼저: 카드·서버진행표시(serverProg)만. 로컬 진행 기록(prog_)은 건드리지 않음 (mergeProgress 는 새 응답에서만)
+      serverProg = st.progress || {};
+      showRes(st); showingStale = true;
+    }
+    markUpdating();
   }
   run()
     .withSuccessHandler(res => {
+      if (seq !== reqSeq) return;   // 더 나중 요청이 있음 → 무시 (그 요청이 loading 해제)
       loading = false;
       if (res.d !== curD) return;   // 갱신 중 날짜가 바뀐 경우 무시
+      const wasStale = showingStale; showingStale = false;
       stampRefresh();
-      if (!res.ok) { document.getElementById('info').textContent = res.error; return; }
-      data = res.groups;
-      mergeProgress(res.progress);
-      document.getElementById('info').textContent = res.d + ' (' + res.date + ') · ' + res.count + '건 · 배차 버튼 → [카톡으로 보내기] → 방 선택';
-      if (res.skipped.length) document.getElementById('skipped').textContent = '제외: \n' + res.skipped.join('\n');
-      else document.getElementById('skipped').textContent = '';
-      render();
-      if (silent) syncOpenCard();
+      if (!res.ok) { data = {}; document.getElementById('container').innerHTML = ''; document.getElementById('info').textContent = res.error; return; }
+      saveGc(res);
+      mergeProgress(res.progress);   // 서버 기준 (처리중 요청 busy 제외) → 저장본보다 항상 우선
+      showRes(res);
+      if (silent || wasStale) syncOpenCard();
     })
-    .withFailureHandler(err => { loading = false; if (silent) return; document.getElementById('info').textContent = '오류: ' + err.message; })
+    .withFailureHandler(err => {
+      if (seq !== reqSeq) return;
+      loading = false;
+      if (showingStale) { stampRefresh(' · 저장본 (갱신 실패)'); return; }
+      if (silent) { stampRefresh(' · 갱신 실패'); return; }
+      document.getElementById('info').textContent = '오류: ' + err.message; })
     .getCards(d, AUTH);
 }
 
@@ -275,16 +299,19 @@ function syncOpenCard() {
   } else { currentItem = hit; applyPending(hit); }
   updateBox();
 }
-function stampRefresh() {
+let lastStamp = '';
+function stampRefresh(note) {
   const n = new Date(), p = x => ('0' + x).slice(-2);
-  document.getElementById('lastRefresh').textContent = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds()) + ' · v30';
+  if (!note) lastStamp = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds());
+  document.getElementById('lastRefresh').textContent = (lastStamp || '') + (note || '') + ' · v31';
 }
+function markUpdating() { document.getElementById('lastRefresh').textContent = (lastStamp ? lastStamp + ' · ' : '') + '업데이트 중… · v31'; }
 setInterval(() => { if (!document.hidden && curD) load(curD, true); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && curD) load(curD, true); });
 
 function resetAll() {
   if (!confirm('이 날짜의 보냄·진행중·완료 표시를 모두 지울까요?')) return;
-  localStorage.removeItem(sentKey()); localStorage.removeItem(progKey()); render();
+  localStorage.removeItem(sentKey()); localStorage.removeItem(progKey()); localStorage.removeItem(gcKey(curD)); render();
   run().withSuccessHandler(r => { if (!r || !r.ok) say('기록 실패 (서버 초기화)'); })
     .withFailureHandler(() => say('기록 실패 (서버 초기화)')).logProgress(AUTH, { d: curD, rk: '*', state: 'reset' });  serverProg = {};
   document.getElementById('msgBox').style.display = 'none';
@@ -642,16 +669,28 @@ function saveSheet() {
     .setSheet(u, AUTH);
 }
 (() => { const d = curD || todayMmdd(), p = api('getCards', { d: d }); p.catch(() => {}); PREFETCH = { d: d, p: p }; })();
-run().withSuccessHandler(cfg => {
-  if (!cfg || !cfg.ok) { PREFETCH = null; }
-  if (!cfg || !cfg.ok) { document.getElementById('info').textContent = (cfg && cfg.error) || '접근 권한이 없습니다.'; return; }
+// config: 저장본 있으면 바로 적용 + 화면 시작, 새 config 로 갱신
+const cfgKey = 'cfg_' + WHO;
+let started = false;
+function applyCfg(cfg) {
   MODE = cfg.mode; CAR = cfg.car; KAKAO_JS_KEY = cfg.kakaoKey || '';
   if (MODE === 'driver') document.getElementById('carTag').textContent = ' · ' + CAR;
   try { if (KAKAO_JS_KEY && window.Kakao) { if (!Kakao.isInitialized()) Kakao.init(KAKAO_JS_KEY); kakaoReady = Kakao.isInitialized(); } } catch (e) {}
   if (kakaoReady) document.getElementById('kakaoBtn').style.display = 'block';
-  if (MODE === 'admin') { document.getElementById('adminSettings').style.display = 'block'; document.getElementById('adminReset').style.display = 'block'; showSheetInfo(); }
-  load(curD || todayMmdd());
-}).withFailureHandler(e => { document.getElementById('info').textContent = '오류: ' + e.message; }).config();
+  if (MODE === 'admin') { document.getElementById('adminSettings').style.display = 'block'; document.getElementById('adminReset').style.display = 'block'; }
+}
+function start() { if (started) return; started = true; if (MODE === 'admin') showSheetInfo(); load(curD || todayMmdd()); }
+(() => { let c = null; try { c = JSON.parse(localStorage.getItem(cfgKey)); } catch (e) {}
+  if (c && c.ok && c.mode !== 'none') { applyCfg(c); start(); } })();
+run().withSuccessHandler(cfg => {
+  if (!cfg || !cfg.ok) {
+    PREFETCH = null; localStorage.removeItem(cfgKey);
+    reqSeq++; loading = false; data = {}; document.getElementById('container').innerHTML = '';
+    document.getElementById('info').textContent = (cfg && cfg.error) || '접근 권한이 없습니다.'; return;
+  }
+  try { localStorage.setItem(cfgKey, JSON.stringify(cfg)); } catch (e) {}
+  applyCfg(cfg); if (started) render(); start();
+}).withFailureHandler(e => { if (!started) document.getElementById('info').textContent = '오류: ' + e.message; }).config();
 </script>
 </body>
 </html>
