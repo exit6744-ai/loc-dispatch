@@ -38,6 +38,10 @@
   .btn.shared { background: #cfe2f3; color: #1a3550; }
   .btn.changed { background: #e53935; color: #fff; }
   .btn:disabled { opacity: 1; }
+  .tc { color: #d50000; background: #fff; border-radius: 4px; padding: 0 3px; font-weight: bold; }
+  .tc-badge { display: inline-block; font-size: 11px; font-weight: bold; color: #fff; background: #d50000; border-radius: 8px; padding: 1px 6px; margin-left: 4px; vertical-align: middle; }
+  #tcLine { display: none; font-size: 13px; font-weight: bold; color: #d50000; margin-bottom: 6px; }
+  #tcLine.strong { background: #ffebee; border: 2px solid #d50000; border-radius: 8px; padding: 6px 8px; }
   #timeLine { display: none; font-size: 12px; color: #1e88e5; margin-bottom: 6px; }
   .btn.cancelled { background: #e0e0e0; color: #777; }
   .btn.cancelled.cancel-alert { border: 3px solid #e53935; color: #c62828; }
@@ -91,6 +95,7 @@
 <div id="msgBox">
   <div id="timeLine"></div>
   <div id="diffLine"></div>
+  <div id="tcLine"></div>
   <div id="msgContent"></div>
   <button class="send-btn" id="sendBtn" onclick="sendKakao()">💬 카톡으로 보내기</button>
   <div class="pend-note" id="pendNote">Consol No.가 아직 없어요 (16시 이후 업데이트). 카톡 보내기는 Consol No.가 나온 뒤에 — 지금은 복사만 가능.</div>
@@ -230,7 +235,7 @@ function pick(v) { if (v) load(v.slice(5, 7) + v.slice(8, 10)); }
 let loading = false, reqSeq = 0, showingStale = false;
 // stale-while-revalidate: 차량(또는 관리자)+날짜별 마지막 getCards 응답을 저장 → 바로 그려 두고 새 응답으로 교체
 const WHO = AUTH.key ? 'admin' : ('car' + (AUTH.car || ''));
-const gcKey = d => 'gc_' + WHO + '_' + d;
+const gcKey = d => 'gc32_' + WHO + '_' + d;
 function saveGc(res) { try { localStorage.setItem(gcKey(res.d), JSON.stringify(res)); } catch (e) {} }
 function loadGc(d) { try { const r = JSON.parse(localStorage.getItem(gcKey(d))); return r && r.ok && r.d === d ? r : null; } catch (e) { return null; } }
 function showRes(res) {
@@ -291,21 +296,21 @@ function syncOpenCard() {
   if (!hit) { document.getElementById('msgBox').style.display = 'none'; currentItem = null; currentMsg = ''; currentId = null; say('열려 있던 배차가 시트에서 사라졌어요.'); return; }
   if (outMsg(hit.msg) !== currentMsg || hit.id !== currentId) {
     currentMsg = outMsg(hit.msg); currentId = hit.id; currentItem = hit; applyPending(hit);
-    document.getElementById('msgContent').textContent = outMsg(hit.msg);
     const ss = sentState(hit), dl = document.getElementById('diffLine');
     dl.textContent = ss.state === 'changed' ? diffLine(ss.prev, hit.msg) : '';
     dl.style.display = ss.state === 'changed' ? 'block' : 'none';
     say('내용이 갱신됐어요.');
   } else { currentItem = hit; applyPending(hit); }
+  showMsgContent(hit);   // timeChanged·공유 후 변경 표시도 갱신
   updateBox();
 }
 let lastStamp = '';
 function stampRefresh(note) {
   const n = new Date(), p = x => ('0' + x).slice(-2);
   if (!note) lastStamp = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds());
-  document.getElementById('lastRefresh').textContent = (lastStamp || '') + (note || '') + ' · v31';
+  document.getElementById('lastRefresh').textContent = (lastStamp || '') + (note || '') + ' · v32';
 }
-function markUpdating() { document.getElementById('lastRefresh').textContent = (lastStamp ? lastStamp + ' · ' : '') + '업데이트 중… · v31'; }
+function markUpdating() { document.getElementById('lastRefresh').textContent = (lastStamp ? lastStamp + ' · ' : '') + '업데이트 중… · v32'; }
 setInterval(() => { if (!document.hidden && curD) load(curD, true); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && curD) load(curD, true); });
 
@@ -331,7 +336,7 @@ const busy = {};
 const STATE_NAME = { '': '대기', shared: '공유됨', run: '운행중', done: '완료' };
 function applyServerProg(item, sp) {
   const p = getProgRaw(), k = rkOf(item);
-  if (sp && sp.state) p[k] = { s: sp.state, t: sp.ts || Date.now(), start: sp.start || '', done: sp.done || '', shared: sp.shared || '' };
+  if (sp && sp.state) p[k] = { s: sp.state, t: sp.ts || Date.now(), start: sp.start || '', done: sp.done || '', shared: sp.shared || '', st: sp.sharedTime || '' };
   else delete p[k];
   saveProgRaw(p);
   serverProg[k] = sp || {};
@@ -344,7 +349,8 @@ function requestProg(item, from, to, onOk) {
   // 빠르게: 화면은 먼저 바꾸고, 서버 기록은 뒤에서. 실패하면 되돌림
   const raw0 = getProgRaw(), prev = raw0[k];
   if (to) raw0[k] = { s: to, t: Date.now(), start: (prev && prev.start) || '', done: (prev && prev.done) || '',
-                      shared: to === 'shared' && !(prev && prev.shared) ? hmNow() : (prev && prev.shared) || '' }; else delete raw0[k];
+                      shared: to === 'shared' && !(prev && prev.shared) ? hmNow() : (prev && prev.shared) || '',
+                      st: (prev && prev.st) || '' }; else delete raw0[k];
   saveProgRaw(raw0);
   const undoLocal = () => { const r = getProgRaw(); if (prev) r[k] = prev; else delete r[k]; saveProgRaw(r); };
   render(); updateBox();
@@ -370,6 +376,14 @@ function requestProg(item, from, to, onOk) {
 // 서버(진행요약)와 병합: 서버가 더 최근이면 서버 값
 let serverProg = {};
 const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// 시간변경: 서버 v38+ 만 timeChanged/sharedTime 보냄 (v37 이하 = 필드 없음 → 표시 없음)
+const normT = t => String(t || '').replace(/\s+/g, ' ').trim();
+const sharedTimeOf = item => { const k = rkOf(item), sv = serverProg[k]; return (sv && sv.sharedTime) || progInfo(item).st || ''; };
+const changedAfterShare = item => { const s = sharedTimeOf(item); return !!s && !!getProg()[rkOf(item)] && normT(s) !== normT(item.time); };
+const timeFlag = item => !!(item && (item.timeChanged || changedAfterShare(item)));
+// 제목의 [HH:MM] 을 빨간 글씨로 (HTML)
+const titleHtml = item => timeFlag(item) ? esc(item.title).replace(/\[(\d{1,2}:\d{2})\]/, '<span class="tc">[$1]</span>') : esc(item.title);
+const firstHtml = item => !item.first ? '' : timeFlag(item) ? '<span class="tc">' + esc(item.first) + '</span>' : esc(item.first);
 function mergeProgress(server) {
   serverProg = server || {};
   if (!server) return;
@@ -380,7 +394,7 @@ function mergeProgress(server) {
     const sv = server[k], lv = p[k];
     const lt = lv && typeof lv === 'object' ? lv.t || 0 : 0;
     if (!lv || sv.ts >= lt) {
-      if (sv.state) p[k] = { s: sv.state, t: sv.ts, start: sv.start, done: sv.done, shared: sv.shared || '' }; else delete p[k];
+      if (sv.state) p[k] = { s: sv.state, t: sv.ts, start: sv.start, done: sv.done, shared: sv.shared || '', st: sv.sharedTime || '' }; else delete p[k];
     }
   }
   saveProgRaw(p);
@@ -477,13 +491,13 @@ function renderBoard() {
                  '<span class="bd-badge wait">대기</span>', '<span class="bd-badge end">오늘 배차 끝</span>'];
   el.innerHTML = '<div class="bd-title">차량 현황</div>' + rows.map((r, i) => {
     const subs = [];
-    if (r.runIt) subs.push('▶ ' + jobName(r.runIt) + (fld(r.runIt, 'start') ? ' · ' + fld(r.runIt, 'start') + ' 시작' : ''));
-    else if (r.shIt) subs.push('📤 ' + jobName(r.shIt) + (fld(r.shIt, 'shared') ? ' · ' + fld(r.shIt, 'shared') + ' 공유' : ''));
-    if (r.next) subs.push('다음 ' + jobName(r.next) + (r.next.first ? ' ' + r.next.first : ''));
-    const lateTxt = r.late.length ? '⚠ 납입시간 지남: ' + r.late.map(x => jobName(x) + (x.first ? ' ' + x.first : '')).join(', ') : '';
+    if (r.runIt) subs.push(esc('▶ ' + jobName(r.runIt) + (fld(r.runIt, 'start') ? ' · ' + fld(r.runIt, 'start') + ' 시작' : '')) + (changedAfterShare(r.runIt) ? '<span class="tc-badge">공유 후 시간변경</span>' : ''));
+    else if (r.shIt) subs.push(esc('📤 ' + jobName(r.shIt) + (fld(r.shIt, 'shared') ? ' · ' + fld(r.shIt, 'shared') + ' 공유' : '')) + (changedAfterShare(r.shIt) ? '<span class="tc-badge">공유 후 시간변경 · 다시 공유 필요</span>' : ''));
+    if (r.next) subs.push(esc('다음 ' + jobName(r.next)) + (r.next.first ? ' ' + firstHtml(r.next) : '') + (timeFlag(r.next) ? '<span class="tc-badge">시간변경</span>' : ''));
+    const lateTxt = r.late.length ? esc('⚠ 납입시간 지남: ') + r.late.map(x => esc(jobName(x)) + (x.first ? ' ' + firstHtml(x) : '')).join(', ') : '';
     return '<div class="bd-row" data-i="' + i + '"><div class="bd-main"><div class="bd-veh">' + esc(r.veh) + '</div>' +
-      (subs.length ? '<div class="bd-sub">' + esc(subs.join('  ·  ')) + '</div>' : '') +
-      (lateTxt ? '<div class="bd-late">' + esc(lateTxt) + '</div>' : '') + '</div>' +
+      (subs.length ? '<div class="bd-sub">' + subs.join(' &nbsp;·&nbsp; ') + '</div>' : '') +
+      (lateTxt ? '<div class="bd-late">' + lateTxt + '</div>' : '') + '</div>' +
       '<div style="text-align:right">' + BADGE[r.rank] + '<div class="bd-cnt">완료 ' + r.done + '/' + r.total + '</div></div></div>';
   }).join('');
   el.querySelectorAll('.bd-row').forEach(rowEl => rowEl.onclick = () => {
@@ -527,7 +541,11 @@ function renderCards() {
       // 보냄 표시 없음 (보내기 = 진행중)
       if (changed) { cls += ' changed'; label += '  ⚠ 변경됨'; }
       const isBusy = !!busy[rkOf(item)];
-      b.className = cls; b.textContent = label;
+      b.className = cls;
+      if (timeFlag(item)) {   // 시간변경: 제목 시간 빨간 글씨 + 배지 (나머지 모양 그대로)
+        b.innerHTML = titleHtml(item) + esc(label.slice(item.title.length)) +
+          (changedAfterShare(item) ? '<span class="tc-badge">공유 후 시간변경</span>' : '<span class="tc-badge">시간변경</span>');
+      } else b.textContent = label;
       b.dataset.rk = rkOf(item);
       b.onclick = () => tapCard(item);     // 완료도 열림 (읽기 전용) — 회색은 CSS로만
       div.appendChild(b);
@@ -548,6 +566,19 @@ function showTimes(item) {
   el.textContent = '공유 ' + (pi.shared || '–') + ' · 운행 시작 ' + (pi.start || '–') + ' · 완료 ' + (pi.done || '–');
   el.style.display = 'block';
 }
+// 메시지 표시 (복사·카톡 문구는 currentMsg 그대로 — 색은 화면에만)
+function showMsgContent(item) {
+  const mc = document.getElementById('msgContent'), om = outMsg(item.msg);
+  if (timeFlag(item)) mc.innerHTML = om.split('\n').map(l => /^▶ 납입시간\s*:/.test(l) ? '<span class="tc">' + esc(l) + '</span>' : esc(l)).join('\n');
+  else mc.textContent = om;
+  showTcLine(item);
+}
+function showTcLine(item) {
+  const el = document.getElementById('tcLine');
+  if (changedAfterShare(item)) { el.className = 'strong'; el.textContent = '⚠ 공유 후 시간변경 · 다시 공유 필요 (공유 때 ' + sharedTimeOf(item) + ' → 지금 ' + item.time + ')'; el.style.display = 'block'; }
+  else if (item.timeChanged) { el.className = ''; el.textContent = '시간변경 (편성표 빨간 글씨)'; el.style.display = 'block'; }
+  else { el.textContent = ''; el.style.display = 'none'; }
+}
 function showMsg(item) {
   if (item.cancelled) return;
   applyPending(item);
@@ -556,7 +587,7 @@ function showMsg(item) {
   const ss = sentState(item), dl = document.getElementById('diffLine');
   dl.textContent = ss.state === 'changed' ? diffLine(ss.prev, item.msg) : '';
   dl.style.display = ss.state === 'changed' ? 'block' : 'none';
-  document.getElementById('msgContent').textContent = outMsg(item.msg);
+  showMsgContent(item);
   const box = document.getElementById('msgBox');
   box.style.display = 'block';
   updateBox();
