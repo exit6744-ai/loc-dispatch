@@ -492,7 +492,7 @@ function renderBoard() {
   el.innerHTML = '<div class="bd-title">차량 현황</div>' + rows.map((r, i) => {
     const subs = [];
     if (r.runIt) subs.push(esc('▶ ' + jobName(r.runIt) + (fld(r.runIt, 'start') ? ' · ' + fld(r.runIt, 'start') + ' 시작' : '')) + (changedAfterShare(r.runIt) ? '<span class="tc-badge">공유 후 시간변경</span>' : ''));
-    else if (r.shIt) subs.push(esc('📤 ' + jobName(r.shIt) + (fld(r.shIt, 'shared') ? ' · ' + fld(r.shIt, 'shared') + ' 공유' : '')) + (changedAfterShare(r.shIt) ? '<span class="tc-badge">공유 후 시간변경 · 다시 공유 필요</span>' : ''));
+    else if (r.shIt) subs.push(esc('📤 ' + jobName(r.shIt) + (fld(r.shIt, 'shared') ? ' · ' + fld(r.shIt, 'shared') + ' 공유' : '')) + (changedAfterShare(r.shIt) ? '<span class="tc-badge">공유 후 시간변경 · 시간 확인·유선확인</span>' : ''));
     if (r.next) subs.push(esc('다음 ' + jobName(r.next)) + (r.next.first ? ' ' + firstHtml(r.next) : '') + (timeFlag(r.next) ? '<span class="tc-badge">시간변경</span>' : ''));
     const lateTxt = r.late.length ? esc('⚠ 납입시간 지남: ') + r.late.map(x => esc(jobName(x)) + (x.first ? ' ' + firstHtml(x) : '')).join(', ') : '';
     return '<div class="bd-row" data-i="' + i + '"><div class="bd-main"><div class="bd-veh">' + esc(r.veh) + '</div>' +
@@ -575,7 +575,7 @@ function showMsgContent(item) {
 }
 function showTcLine(item) {
   const el = document.getElementById('tcLine');
-  if (changedAfterShare(item)) { el.className = 'strong'; el.textContent = '⚠ 공유 후 시간변경 · 다시 공유 필요 (공유 때 ' + sharedTimeOf(item) + ' → 지금 ' + item.time + ')'; el.style.display = 'block'; }
+  if (changedAfterShare(item)) { el.className = 'strong'; el.textContent = '⚠ 공유 후 시간변경 · 시간 확인 / 관리자 유선확인 (공유 때 ' + sharedTimeOf(item) + ' → 지금 ' + item.time + ')'; el.style.display = 'block'; }
   else if (item.timeChanged) { el.className = ''; el.textContent = '시간변경 (편성표 빨간 글씨)'; el.style.display = 'block'; }
   else { el.textContent = ''; el.style.display = 'none'; }
 }
