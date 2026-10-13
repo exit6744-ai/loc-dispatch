@@ -88,6 +88,7 @@
   <input type="date" id="datePick" onchange="pick(this.value)">
   <button onclick="shift(1)">다음날 ▶</button>
 </div>
+<div class="info" id="advNote" style="display:none;color:#0a7"></div>
 <div class="info" id="info">불러오는 중…</div>
 <div class="refresh" id="lastRefresh"></div>
 <div class="status" id="status"></div>
@@ -228,9 +229,28 @@ function dateToMmdd(dt) { return ('0' + (dt.getMonth() + 1)).slice(-2) + ('0' + 
 function isoOf(dt) { return dt.getFullYear() + '-' + ('0' + (dt.getMonth() + 1)).slice(-2) + '-' + ('0' + dt.getDate()).slice(-2); }
 // 제목 클릭 → 오늘 근무일 (07:00 이전은 전날 근무일)
 function todayMmdd() { const dt = new Date(); if (dt.getHours() < 7) dt.setDate(dt.getDate() - 1); if (dt.getDay() === 0) dt.setDate(dt.getDate() + 1); return dateToMmdd(dt); }   // 일요일 휴무 → 월요일
-function goToday() { closeBox(); load(todayMmdd()); }
-function shift(n) { const dt = mmddToDate(curD); dt.setDate(dt.getDate() + n); load(dateToMmdd(dt)); }
-function pick(v) { if (v) load(v.slice(5, 7) + v.slice(8, 10)); }
+function goToday() { closeBox(); advOff(); load(todayMmdd()); }
+function shift(n) { advOff(); const dt = mmddToDate(curD); dt.setDate(dt.getDate() + n); load(dateToMmdd(dt)); }
+function pick(v) { if (v) { advOff(); load(v.slice(5, 7) + v.slice(8, 10)); } }
+// 오늘 배차가 모두 완료/취소 → 다음 근무일 탭 자동 표시 (탭 없으면 오늘 유지). ?d= 지정·날짜 직접 선택 시 끔
+let ADV = { on: !curD, trying: '', today: '', next: '' };
+function advOff() { ADV.on = false; ADV.trying = ''; showAdvNote(); }
+function nextWork(d) { const dt = mmddToDate(d); dt.setDate(dt.getDate() + 1); if (dt.getDay() === 0) dt.setDate(dt.getDate() + 1); return dateToMmdd(dt); }
+function todayFinished() {   // 이 날짜 데이터(00:10 완성 1차 포함)의 취소 아닌 카드가 전부 완료 (기사앱은 서버가 그 차량 카드만 줌)
+  const prog = getProg(); return [].concat(...Object.values(data || {})).every(x => x.cancelled || prog[rkOf(x)] === 'done');
+}
+function showAdvNote() {
+  const el = document.getElementById('advNote'), show = ADV.on && ADV.next && curD === ADV.next;
+  el.style.display = show ? 'block' : 'none';
+  if (show) el.innerHTML = '오늘 배차 종료 · 내일(' + (+curD.slice(0, 2)) + '/' + (+curD.slice(2)) + ') 일정 · <a href="#" onclick="goToday();return false">오늘 보기</a>';
+}
+function advCheck(res) {
+  if (!ADV.on) return;
+  const t = todayMmdd();
+  if (res.d === ADV.trying) { ADV.trying = ''; if (res.ok) ADV.next = res.d; else { ADV.on = false; load(ADV.today); } showAdvNote(); return; }
+  if (res.d === t && res.ok && !ADV.trying && todayFinished()) { ADV.today = t; ADV.trying = nextWork(t); load(ADV.trying); }
+  showAdvNote();
+}
 
 let loading = false, reqSeq = 0, showingStale = false;
 // stale-while-revalidate: 차량(또는 관리자)+날짜별 마지막 getCards 응답을 저장 → 바로 그려 두고 새 응답으로 교체
@@ -272,15 +292,18 @@ function load(d, silent) {
       if (res.d !== curD) return;   // 갱신 중 날짜가 바뀐 경우 무시
       const wasStale = showingStale; showingStale = false;
       stampRefresh();
+      if (!res.ok && curD === ADV.trying) { ADV.trying = ''; ADV.on = false; load(ADV.today); return; }
       if (!res.ok) { data = {}; document.getElementById('container').innerHTML = ''; document.getElementById('info').textContent = res.error; return; }
       saveGc(res);
       mergeProgress(res.progress);   // 서버 기준 (처리중 요청 busy 제외) → 저장본보다 항상 우선
       showRes(res);
       if (silent || wasStale) syncOpenCard();
+      advCheck(res);
     })
     .withFailureHandler(err => {
       if (seq !== reqSeq) return;
       loading = false;
+      if (d === ADV.trying) { ADV.trying = ''; ADV.on = false; load(ADV.today); return; }
       if (showingStale) { stampRefresh(' · 저장본 (갱신 실패)'); return; }
       if (silent) { stampRefresh(' · 갱신 실패'); return; }
       document.getElementById('info').textContent = '오류: ' + err.message; })
@@ -308,7 +331,7 @@ let lastStamp = '';
 function stampRefresh(note) {
   const n = new Date(), p = x => ('0' + x).slice(-2);
   if (!note) lastStamp = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds());
-  document.getElementById('lastRefresh').textContent = (lastStamp || '') + (note || '') + ' · v32';
+  document.getElementById('lastRefresh').textContent = (lastStamp || '') + (note || '') + ' · v33';
 }
 function markUpdating() { document.getElementById('lastRefresh').textContent = (lastStamp ? lastStamp + ' · ' : '') + '업데이트 중… · v32'; }
 setInterval(() => { if (!document.hidden && curD) load(curD, true); }, 60000);
