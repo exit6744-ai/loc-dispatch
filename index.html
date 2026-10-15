@@ -789,7 +789,7 @@ function autoDepTarget() {
 function autoDepCheck(c) {
   const it = autoDepTarget(); if (!it) return;
   const lp = pickByKeys(GEO.load, String(it.route || '') + ' ' + String(it.title || '')); if (!lp) return;
-  const acc = Math.min(+c.accuracy || 0, 300), d = distM(c.latitude, c.longitude, lp.lat, lp.lng), rad = +lp.rad || 300;
+  const acc = Math.min(+c.accuracy || 0, 300), d = distM(c.latitude, c.longitude, lp.lat, lp.lng), rad = +lp.rad || 1000;
   const k = AUTO_KEY + curD, now = Date.now();
   let st = {}; try { st = JSON.parse(localStorage.getItem(k)) || {}; } catch (e) {}
   if (st.fired && st.fired[rkOf(it)]) return;                     // 이 카드는 이미 자동 시도함 (멱등)
