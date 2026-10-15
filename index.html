@@ -92,6 +92,7 @@
 <div class="info" id="info">불러오는 중…</div>
 <div class="refresh" id="lastRefresh"></div>
 <div class="status" id="status"></div>
+<div id="locWarn" style="display:none;margin:6px 0;padding:10px;background:#d32f2f;color:#fff;border-radius:8px;font-size:15px;font-weight:bold;text-align:center">⚠ 위치 전송 중지됨 – 화면을 켜 두세요<div id="locWarnSub" style="font-size:12px;font-weight:normal;margin-top:3px"></div></div>
 <div id="locAsk" style="display:none;margin:6px 0;padding:8px 10px;background:#eef6ff;border:1px solid #b6d4f5;border-radius:8px;font-size:13px;color:#1a3550">📍 운행 중 차량 위치를 관리자에게 알려 주기 위해 위치 권한을 사용해요. (공유·시작·완료 때와 운행 중 약 3분마다, 화면이 켜져 있을 때만)<br><button id="locAskBtn" style="margin-top:6px;padding:4px 12px">위치 허용</button> <button id="locAskNo" style="margin-top:6px;padding:4px 12px">나중에</button></div>
 <div id="board"></div>
 <div id="msgBox">
@@ -332,9 +333,9 @@ let lastStamp = '';
 function stampRefresh(note) {
   const n = new Date(), p = x => ('0' + x).slice(-2);
   if (!note) lastStamp = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds());
-  document.getElementById('lastRefresh').textContent = (lastStamp || '') + (note || '') + ' · v37';
+  document.getElementById('lastRefresh').textContent = (lastStamp || '') + (note || '') + ' · v38';
 }
-function markUpdating() { document.getElementById('lastRefresh').textContent = (lastStamp ? lastStamp + ' · ' : '') + '업데이트 중… · v37'; }
+function markUpdating() { document.getElementById('lastRefresh').textContent = (lastStamp ? lastStamp + ' · ' : '') + '업데이트 중… · v38'; }
 setInterval(() => { if (!document.hidden && curD) load(curD, true); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && curD) load(curD, true); });
 
@@ -366,7 +367,7 @@ function applyServerProg(item, sp) {
   serverProg[k] = sp || {};
 }
 // from → to 요청. 성공 시 onOk() 실행
-function requestProg(item, from, to, onOk) {
+function requestProg(item, from, to, onOk, src) {
   const k = rkOf(item);
   if (busy[k] || item.cancelled) return;
   busy[k] = true;
@@ -379,9 +380,10 @@ function requestProg(item, from, to, onOk) {
   const undoLocal = () => { const r = getProgRaw(); if (prev) r[k] = prev; else delete r[k]; saveProgRaw(r); };
   render(); updateBox();
   if (onOk) { try { onOk(); } catch (e) {} onOk = null; }
-  if (to === 'shared' || to === 'run' || to === 'done') locSend(to === 'shared' ? 'share' : to === 'run' ? 'start' : 'done');   // v35 위치 (실패해도 무시)
+  if (!src && (to === 'shared' || to === 'run' || to === 'done')) locSend(to === 'shared' ? 'share' : to === 'run' ? 'start' : 'done');   // v35 위치 (실패해도 무시)
   const info = { d: curD, rk: k, veh: item.veh, title: item.title, route: item.route, n: item.n,
                  s: item.pending ? '' : item.s, time: item.time, from: from, to: to };
+  if (src) info.src = src;   // v38 'auto' = 자동 출발 (옛 서버는 무시 → 일반 운행 시작)
   const end = () => { delete busy[k]; render(); if (currentItem && rkOf(currentItem) === k) updateBox(); };
   run()
     .withSuccessHandler(r => {
@@ -480,7 +482,7 @@ function updateBox() {
   showTimes(item);
 }
 
-function render() { renderCards(); renderBoard(); placeBox(); }
+function render() { renderCards(); renderBoard(); placeBox(); if (MODE === 'driver' && LOC_ON) { wakeSync(); locWarnCheck(); } }
 // 관리자: 차량 현황 (차량마다 1줄. 운행중 → 공유됨 → 대기 → 끝 순)
 // 납입 예정 시각: 근무일(curD) + 납입시간, 07:00 이전·24:00 이후 = 다음날 (근무일 07:00~25:50)
 function dueTime(item) {
@@ -515,7 +517,7 @@ function renderBoard() {
   const BADGE = ['<span class="bd-badge run">▶ 운행중</span>', '<span class="bd-badge shared">📤 공유됨</span>',
                  '<span class="bd-badge wait">대기</span>', '<span class="bd-badge end">오늘 배차 끝</span>'];
   el.innerHTML = '<div class="bd-title">차량 현황</div>' + rows.map((r, i) => {
-    const subs = [], lh = locHtml(r.veh);
+    const subs = [], lh = locHtml(r.veh, r.runIt);
     if (r.runIt) subs.push(esc('▶ ' + jobName(r.runIt) + (fld(r.runIt, 'start') ? ' · ' + fld(r.runIt, 'start') + ' 시작' : '')) + (changedAfterShare(r.runIt) ? '<span class="tc-badge">공유 후 시간변경</span>' : ''));
     else if (r.shIt) subs.push(esc('📤 ' + jobName(r.shIt) + (fld(r.shIt, 'shared') ? ' · ' + fld(r.shIt, 'shared') + ' 공유' : '')) + (changedAfterShare(r.shIt) ? '<span class="tc-badge">공유 후 시간변경 · 시간·관리자·카톡 확인</span>' : ''));
     if (r.next) subs.push(esc('다음 ' + jobName(r.next)) + (r.next.first ? ' ' + firstHtml(r.next) : '') + (timeFlag(r.next) ? '<span class="tc-badge">시간변경</span>' : ''));
@@ -709,7 +711,8 @@ function copyMsg() {
 // ── v35 차량 위치 (서버 config.loc 있을 때만 동작, 실패는 조용히 무시) ──
 let LOC_ON = false, LOCS = {}, ARRS = {}, locLastSent = 0, locBusy = false;
 const LOC_EVERY = 180000;
-const locHasTrip = () => { const p = getProg(); return Object.values(data || {}).some(items => items.some(x => !x.cancelled && (p[rkOf(x)] === 'run' || p[rkOf(x)] === 'shared'))); };
+const locHasTrip = () => { const p = getProg(); return Object.values(data || {}).some(items => items.some(x => !x.cancelled && (p[rkOf(x)] === 'run' || p[rkOf(x)] === 'shared'))) || !!autoDepTarget(); };
+const locHasRun = () => { const p = getProg(); return Object.values(data || {}).some(items => items.some(x => !x.cancelled && p[rkOf(x)] === 'run')); };
 function locSend(ev) {
   if (!LOC_ON || MODE !== 'driver' || !navigator.geolocation || localStorage.getItem('locDeny') === '1') return;
   if (ev === 'tick' && (locBusy || document.hidden || !locHasTrip() || Date.now() - locLastSent < LOC_EVERY - 5000)) return;
@@ -720,8 +723,9 @@ function locSend(ev) {
       const c = pos.coords, info = { lat: +c.latitude.toFixed(6), lng: +c.longitude.toFixed(6), acc: Math.round(c.accuracy || 0), ev: ev };
       const pr = getProg(), ri = [].concat(...Object.values(data || {})).find(x => !x.cancelled && pr[rkOf(x)] === 'run');
       if (ri) info.trip = { s: 'run', d: curD, rk: rkOf(ri), route: ri.route, title: ri.title };   // 도착 판정용
-      api('logLoc', { info: info }).catch(() => {});
-    }, err => { locBusy = false; if (err && err.code === 1) { try { localStorage.setItem('locDeny', '1'); } catch (e) {} } },
+      api('logLoc', { info: info }).then(r => { if (r && r.ok) { locLastOk = Date.now(); locWarnCheck(); } }).catch(() => {});
+      try { autoDepCheck(c); } catch (e) {}
+    }, err => { locBusy = false; if (err && err.code === 1) { try { localStorage.setItem('locDeny', '1'); } catch (e) {} locWarnCheck(); } },
     { enableHighAccuracy: false, timeout: 20000, maximumAge: 60000 });
   } catch (e) { locBusy = false; }
 }
@@ -737,8 +741,95 @@ function locInit() {
     if (st && st.state === 'denied') return;
     if (localStorage.getItem('locAsked') !== '1') box.style.display = 'block';
   });
-  setInterval(() => locSend('tick'), 30000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) locSend('tick'); });
+  setInterval(() => { locSend('tick'); wakeSync(); locWarnCheck(); }, 30000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { locVisibleSince = Date.now(); locSend('tick'); } wakeSync(); locWarnCheck(); });
+  wakeSync();
+}
+// ── v38 위치 개선 ──
+// GEO: 서버 v41+ api 'geo' (상차지·도착지·ETA속도, 시트 '도착지좌표'에서 수정). 옛 서버 = 기본값(GM 창원, 60km/h, 상차지 없음 → 자동 출발 꺼짐)
+let GEO = { load: [], dests: [{ name: '한국GM 창원공장', lat: 35.1980, lng: 128.7047, rad: 300, keys: [] }], kmh: 60, road: 1.3 }, GEO_SRV = false;
+function geoLoad(cfg) {
+  if (!cfg || !cfg.geo) return;
+  api('geo', {}).then(r => { if (r && r.ok) { GEO = { load: r.load || [], dests: (r.dests && r.dests.length) ? r.dests : GEO.dests, kmh: +r.kmh || 60, road: +r.road || 1.3 }; GEO_SRV = true; renderBoard(); } }).catch(() => {});
+}
+const distM = (a1, o1, a2, o2) => { const t = Math.PI / 180, dA = (a2 - a1) * t, dO = (o2 - o1) * t;
+  const h = Math.sin(dA / 2) ** 2 + Math.cos(a1 * t) * Math.cos(a2 * t) * Math.sin(dO / 2) ** 2; return 2 * 6371000 * Math.asin(Math.sqrt(h)); };
+const pickByKeys = (list, txt) => (list || []).find(x => (x.keys || []).some(k => txt.indexOf(k) >= 0)) || (list || []).find(x => !(x.keys || []).length) || null;
+const hhmm = ms => { const d = new Date(ms); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+// 구간 번호: 경로 안내 지도 '남면로 599 → 창원대로 1124' (①출발 ②성산패총로 ③창원대로 ④+1km ⑤+2km ⑥공장 진입로). 경로 300m 밖이면 표시 안 함
+const SEG_ROUTES = [{ key: 'SNT', name: 'SNT', cps: [0, 377, 954, 1954, 2954, 3489, 4188],
+  pts: [[35.20775,128.67672],[35.20587,128.67996],[35.20579,128.68009],[35.20591,128.6802],[35.20668,128.68088],[35.20789,128.68188],[35.2095,128.68331],[35.20991,128.68366],[35.21003,128.68376],[35.20996,128.68388],[35.20854,128.68635],[35.20827,128.68686],[35.20776,128.6877],[35.20773,128.68774],[35.20701,128.689],[35.20563,128.6914],[35.2056,128.69145],[35.20548,128.69165],[35.20542,128.69177],[35.20534,128.69191],[35.20527,128.69204],[35.20384,128.69456],[35.20358,128.69499],[35.20345,128.69521],[35.20331,128.69547],[35.20265,128.69661],[35.2026,128.69669],[35.2025,128.69685],[35.20178,128.69814],[35.20146,128.69868],[35.20106,128.69935],[35.20095,128.69955],[35.19977,128.70164],[35.19886,128.70326],[35.19736,128.70583],[35.19717,128.70616],[35.19693,128.70656],[35.19684,128.70648],[35.1968,128.70645],[35.19653,128.70621],[35.19174,128.70218]] }];
+function segOf(txt, lat, lng) {
+  const R = SEG_ROUTES.find(r => txt.indexOf(r.key) >= 0); if (!R) return '';
+  const kx = Math.cos(lat * Math.PI / 180) * 111320, ky = 110540, P = R.pts;
+  let best = 1e9, along = 0, acc = 0;
+  for (let i = 0; i < P.length - 1; i++) {
+    const ax = P[i][1] * kx, ay = P[i][0] * ky, dx = P[i + 1][1] * kx - ax, dy = P[i + 1][0] * ky - ay, px = lng * kx, py = lat * ky;
+    const L2 = dx * dx + dy * dy, len = Math.sqrt(L2), t = L2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L2)) : 0;
+    const d = Math.hypot(px - ax - t * dx, py - ay - t * dy);
+    if (d < best) { best = d; along = acc + t * len; }
+    acc += len;
+  }
+  if (best > 300) return '';
+  const sc = acc / R.cps[R.cps.length - 1]; let n = 1;
+  for (let j = 1; j < R.cps.length - 1; j++) if (along >= R.cps[j] * sc) n = j + 1;
+  return R.name + '노선 ' + n + '구간';
+}
+// 자동 출발: 그 근무일(오늘) 다음 미완료 카드가 대기/공유이고, 상차지 반경 안에 3분 이상 머문 뒤 반경 밖으로 나가면 운행 시작(src 'auto') 1번
+const AUTO_DWELL = 3 * 60000, AUTO_KEY = 'autoDep_';
+function autoDepTarget() {
+  if (MODE !== 'driver' || !GEO_SRV || !GEO.load.length || curD !== todayMmdd()) return null;
+  const p = getProg(), all = [].concat(...Object.values(data || {})).filter(x => !x.cancelled && !x.placeholder).sort((a, b) => a.min - b.min);
+  if (all.some(x => p[rkOf(x)] === 'run')) return null;
+  const nx = all.find(x => p[rkOf(x)] !== 'done');
+  if (!nx) return null;
+  const pr = p[rkOf(nx)] || '';
+  return (pr === '' || pr === 'shared') ? nx : null;
+}
+function autoDepCheck(c) {
+  const it = autoDepTarget(); if (!it) return;
+  const lp = pickByKeys(GEO.load, String(it.route || '') + ' ' + String(it.title || '')); if (!lp) return;
+  const acc = Math.min(+c.accuracy || 0, 300), d = distM(c.latitude, c.longitude, lp.lat, lp.lng), rad = +lp.rad || 300;
+  const k = AUTO_KEY + curD, now = Date.now();
+  let st = {}; try { st = JSON.parse(localStorage.getItem(k)) || {}; } catch (e) {}
+  if (st.fired && st.fired[rkOf(it)]) return;                     // 이 카드는 이미 자동 시도함 (멱등)
+  if (d <= rad && acc <= 150) {                                    // 반경 안 (정확도 괜찮을 때만)
+    if (!st.in || now - st.last > 30 * 60000) st.in = now;         // 30분 넘게 끊겼으면 새로 머묾 시작
+    st.last = now;
+  } else if (d > rad + Math.max(100, acc) && st.in && st.last && st.last - st.in >= AUTO_DWELL && now - st.last < 60 * 60000) {
+    st.fired = st.fired || {}; st.fired[rkOf(it)] = now; st.in = 0; st.last = 0;
+    try { localStorage.setItem(k, JSON.stringify(st)); } catch (e) {}
+    const pr = curProg(it);
+    if ((pr === '' || pr === 'shared') && !busy[rkOf(it)] && !otherRunning(it))
+      requestProg(it, pr, 'run', () => say('상차지를 떠나 운행 시작으로 자동 기록했어요.'), 'auto');
+    return;
+  }
+  try { localStorage.setItem(k, JSON.stringify(st)); } catch (e) {}
+}
+// 화면 꺼짐 방지 (운행중일 때만). 지원 안 하는 폰(옛 iOS/안드로이드)은 조용히 넘어감 → 배너로 안내
+let wakeLock = null, locLastOk = 0, locVisibleSince = Date.now();
+function wakeSync() {
+  if (MODE !== 'driver') return;
+  const want = !document.hidden && locHasRun();
+  if (!('wakeLock' in navigator)) return;
+  if (want && !wakeLock) {
+    wakeLock = 'pending';
+    navigator.wakeLock.request('screen').then(l => { wakeLock = l; l.addEventListener('release', () => { if (wakeLock === l) wakeLock = null; }); })
+      .catch(() => { wakeLock = null; });
+  } else if (!want && wakeLock && wakeLock !== 'pending') { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
+}
+function locWarnCheck() {
+  const el = document.getElementById('locWarn'); if (!el) return;
+  let show = false, sub = '';
+  if (LOC_ON && MODE === 'driver' && !document.hidden && locHasRun()) {
+    const denied = localStorage.getItem('locDeny') === '1' || !navigator.geolocation;
+    const since = Math.max(locLastOk, locVisibleSince);
+    if (denied) { show = true; sub = '위치 권한이 꺼져 있어요 → 휴대폰 설정에서 이 사이트(브라우저) 위치 허용'; }
+    else if (Date.now() - since > 5 * 60000) { show = true; sub = '5분 넘게 위치를 못 보냈어요 · 통신·GPS 확인'; }
+    if (show && !('wakeLock' in navigator)) sub += ' · 이 폰은 화면 켜짐 유지 미지원 → 설정에서 화면 꺼짐 시간 늘리기';
+  }
+  el.style.display = show ? 'block' : 'none';
+  document.getElementById('locWarnSub').textContent = sub;
 }
 let locAdminBusy = false;   // v37: 위치 요청 중복 방지
 function locLoadAdmin() {
@@ -746,7 +837,7 @@ function locLoadAdmin() {
   locAdminBusy = true; setTimeout(() => { locAdminBusy = false; }, 20000);
   api('getLocs', {}).then(r => { locAdminBusy = false; if (r && r.ok) { LOCS = r.locs || {}; ARRS = r.arrs || {}; renderBoard(); } }).catch(() => { locAdminBusy = false; });
 }
-function locHtml(veh) {
+function locHtml(veh, runIt) {
   if (!LOC_ON) return '';
   const ac = Object.keys(ARRS).find(c => new RegExp('(^|\\D)' + c + '(\\D|$)').test(veh));
   const at = ac ? (d => ' <span style="background:#2e7d32;color:#fff;border-radius:8px;padding:0 6px;font-size:11px">도착 ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + '</span>')(new Date(ARRS[ac].ms)) : '';
@@ -755,10 +846,23 @@ function locHtml(veh) {
   const L = LOCS[car], ago = Math.max(0, Math.round((Date.now() - L.ms) / 60000)), d = new Date(L.ms);
   const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
   const agoTxt = ago < 1 ? '방금' : ago < 60 ? ago + '분 전' : ago < 1440 ? Math.floor(ago / 60) + '시간 전' : Math.floor(ago / 1440) + '일 전';
+  let extra = '';   // v38: 운행중이면 위치 끊김 / ETA / 구간
+  if (runIt) {
+    const txt = String(runIt.route || '') + ' ' + String(runIt.title || '');
+    if (ago > 15) extra += ' <span style="background:#d32f2f;color:#fff;border-radius:8px;padding:0 6px;font-size:11px">⚠ 위치 끊김 ' + ago + '분</span>';
+    else { const sg = segOf(txt, L.lat, L.lng); if (sg) extra += ' <span style="color:#333">· ' + esc(sg) + '</span>'; }
+    const dest = !at && pickByKeys(GEO.dests, txt);
+    if (dest) {
+      const dm = distM(L.lat, L.lng, dest.lat, dest.lng), now = Math.max(Date.now(), L.ms);
+      const eta = dm <= (dest.rad || 300) ? now : now + dm * (GEO.road || 1.3) / ((GEO.kmh || 60) / 3.6) * 1000, due = dueTime(runIt);
+      const lateE = !!(due && eta > due.getTime());
+      extra += ' <span style="background:' + (lateE ? '#ef6c00' : '#e3f2fd') + ';color:' + (lateE ? '#fff' : '#0d47a1') + ';border-radius:8px;padding:0 6px;font-size:11px">도착 ~' + hhmm(eta) + (lateE ? ' (납입 ' + hhmm(due.getTime()) + ' 지남)' : '') + '</span>';
+    }
+  }
   const old = ago > 15, k = 'https://map.kakao.com/link/map/' + encodeURIComponent(car) + ',' + L.lat + ',' + L.lng;
   const n = 'https://map.naver.com/p/search/' + L.lat + ',' + L.lng;
   return '<div class="bd-loc" style="font-size:12px;margin-top:2px;color:' + (old ? '#aaa' : '#1565c0') + '">📍 위치 ' + hm + ' · ' + agoTxt +
-    ' &nbsp;<a href="' + k + '" target="_blank" rel="noopener" style="color:inherit">카카오맵</a> · <a href="' + n + '" target="_blank" rel="noopener" style="color:inherit">네이버</a>' + at + '</div>';
+    ' &nbsp;<a href="' + k + '" target="_blank" rel="noopener" style="color:inherit">카카오맵</a> · <a href="' + n + '" target="_blank" rel="noopener" style="color:inherit">네이버</a>' + at + extra + '</div>';
 }
 setInterval(locLoadAdmin, 60000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') locLoadAdmin(); });   // v37: 다시 보일 때 위치 즉시 갱신 (관리자만)
@@ -795,7 +899,7 @@ function applyCfg(cfg) {
   if (MODE === 'admin') { document.getElementById('adminSettings').style.display = 'block'; document.getElementById('adminReset').style.display = 'block'; }
 }
 function start() { if (started) return; started = true; if (MODE === 'admin') showSheetInfo(); load(curD || todayMmdd()); }
-function locStart(cfg) { if (LOC_ON || !cfg || !cfg.loc) return; LOC_ON = true; locInit(); locLoadAdmin(); }
+function locStart(cfg) { if (LOC_ON || !cfg || !cfg.loc) return; LOC_ON = true; geoLoad(cfg); locInit(); locLoadAdmin(); }
 (() => { let c = null; try { c = JSON.parse(localStorage.getItem(cfgKey)); } catch (e) {}
   if (c && c.ok && c.mode !== 'none') { applyCfg(c); start(); } })();
 run().withSuccessHandler(cfg => {
