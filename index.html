@@ -332,9 +332,9 @@ let lastStamp = '';
 function stampRefresh(note) {
   const n = new Date(), p = x => ('0' + x).slice(-2);
   if (!note) lastStamp = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds());
-  document.getElementById('lastRefresh').textContent = (lastStamp || '') + (note || '') + ' · v34';
+  document.getElementById('lastRefresh').textContent = (lastStamp || '') + (note || '') + ' · v37';
 }
-function markUpdating() { document.getElementById('lastRefresh').textContent = (lastStamp ? lastStamp + ' · ' : '') + '업데이트 중… · v32'; }
+function markUpdating() { document.getElementById('lastRefresh').textContent = (lastStamp ? lastStamp + ' · ' : '') + '업데이트 중… · v37'; }
 setInterval(() => { if (!document.hidden && curD) load(curD, true); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && curD) load(curD, true); });
 
@@ -740,9 +740,11 @@ function locInit() {
   setInterval(() => locSend('tick'), 30000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) locSend('tick'); });
 }
+let locAdminBusy = false;   // v37: 위치 요청 중복 방지
 function locLoadAdmin() {
-  if (!LOC_ON || MODE !== 'admin' || document.hidden) return;
-  api('getLocs', {}).then(r => { if (r && r.ok) { LOCS = r.locs || {}; ARRS = r.arrs || {}; renderBoard(); } }).catch(() => {});
+  if (!LOC_ON || MODE !== 'admin' || document.hidden || locAdminBusy) return;
+  locAdminBusy = true; setTimeout(() => { locAdminBusy = false; }, 20000);
+  api('getLocs', {}).then(r => { locAdminBusy = false; if (r && r.ok) { LOCS = r.locs || {}; ARRS = r.arrs || {}; renderBoard(); } }).catch(() => { locAdminBusy = false; });
 }
 function locHtml(veh) {
   if (!LOC_ON) return '';
@@ -759,6 +761,7 @@ function locHtml(veh) {
     ' &nbsp;<a href="' + k + '" target="_blank" rel="noopener" style="color:inherit">카카오맵</a> · <a href="' + n + '" target="_blank" rel="noopener" style="color:inherit">네이버</a>' + at + '</div>';
 }
 setInterval(locLoadAdmin, 60000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') locLoadAdmin(); });   // v37: 다시 보일 때 위치 즉시 갱신 (관리자만)
 
 function showSheetInfo() {
   run().withSuccessHandler(r => {
