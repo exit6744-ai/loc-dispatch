@@ -707,7 +707,7 @@ function copyMsg() {
 
 
 // ── v35 차량 위치 (서버 config.loc 있을 때만 동작, 실패는 조용히 무시) ──
-let LOC_ON = false, LOCS = {}, locLastSent = 0, locBusy = false;
+let LOC_ON = false, LOCS = {}, ARRS = {}, locLastSent = 0, locBusy = false;
 const LOC_EVERY = 180000;
 const locHasTrip = () => { const p = getProg(); return Object.values(data || {}).some(items => items.some(x => !x.cancelled && (p[rkOf(x)] === 'run' || p[rkOf(x)] === 'shared'))); };
 function locSend(ev) {
@@ -718,6 +718,8 @@ function locSend(ev) {
     navigator.geolocation.getCurrentPosition(pos => {
       locBusy = false; locLastSent = Date.now();
       const c = pos.coords, info = { lat: +c.latitude.toFixed(6), lng: +c.longitude.toFixed(6), acc: Math.round(c.accuracy || 0), ev: ev };
+      const pr = getProg(), ri = [].concat(...Object.values(data || {})).find(x => !x.cancelled && pr[rkOf(x)] === 'run');
+      if (ri) info.trip = { s: 'run', d: curD, rk: rkOf(ri), route: ri.route, title: ri.title };   // 도착 판정용
       api('logLoc', { info: info }).catch(() => {});
     }, err => { locBusy = false; if (err && err.code === 1) { try { localStorage.setItem('locDeny', '1'); } catch (e) {} } },
     { enableHighAccuracy: false, timeout: 20000, maximumAge: 60000 });
@@ -740,19 +742,21 @@ function locInit() {
 }
 function locLoadAdmin() {
   if (!LOC_ON || MODE !== 'admin' || document.hidden) return;
-  api('getLocs', {}).then(r => { if (r && r.ok) { LOCS = r.locs || {}; renderBoard(); } }).catch(() => {});
+  api('getLocs', {}).then(r => { if (r && r.ok) { LOCS = r.locs || {}; ARRS = r.arrs || {}; renderBoard(); } }).catch(() => {});
 }
 function locHtml(veh) {
   if (!LOC_ON) return '';
+  const ac = Object.keys(ARRS).find(c => new RegExp('(^|\\D)' + c + '(\\D|$)').test(veh));
+  const at = ac ? (d => ' <span style="background:#2e7d32;color:#fff;border-radius:8px;padding:0 6px;font-size:11px">도착 ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + '</span>')(new Date(ARRS[ac].ms)) : '';
   const car = Object.keys(LOCS).find(c => new RegExp('(^|\\D)' + c + '(\\D|$)').test(veh));
-  if (!car) return '';
+  if (!car) return at ? '<div class="bd-loc" style="font-size:12px;margin-top:2px">' + at + '</div>' : '';
   const L = LOCS[car], ago = Math.max(0, Math.round((Date.now() - L.ms) / 60000)), d = new Date(L.ms);
   const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
   const agoTxt = ago < 1 ? '방금' : ago < 60 ? ago + '분 전' : ago < 1440 ? Math.floor(ago / 60) + '시간 전' : Math.floor(ago / 1440) + '일 전';
   const old = ago > 15, k = 'https://map.kakao.com/link/map/' + encodeURIComponent(car) + ',' + L.lat + ',' + L.lng;
   const n = 'https://map.naver.com/p/search/' + L.lat + ',' + L.lng;
   return '<div class="bd-loc" style="font-size:12px;margin-top:2px;color:' + (old ? '#aaa' : '#1565c0') + '">📍 위치 ' + hm + ' · ' + agoTxt +
-    ' &nbsp;<a href="' + k + '" target="_blank" rel="noopener" style="color:inherit">카카오맵</a> · <a href="' + n + '" target="_blank" rel="noopener" style="color:inherit">네이버</a></div>';
+    ' &nbsp;<a href="' + k + '" target="_blank" rel="noopener" style="color:inherit">카카오맵</a> · <a href="' + n + '" target="_blank" rel="noopener" style="color:inherit">네이버</a>' + at + '</div>';
 }
 setInterval(locLoadAdmin, 60000);
 
