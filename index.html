@@ -92,6 +92,7 @@
 <div class="info" id="info">불러오는 중…</div>
 <div class="refresh" id="lastRefresh"></div>
 <div class="status" id="status"></div>
+<div id="locAsk" style="display:none;margin:6px 0;padding:8px 10px;background:#eef6ff;border:1px solid #b6d4f5;border-radius:8px;font-size:13px;color:#1a3550">📍 운행 중 차량 위치를 관리자에게 알려 주기 위해 위치 권한을 사용해요. (공유·시작·완료 때와 운행 중 약 3분마다, 화면이 켜져 있을 때만)<br><button id="locAskBtn" style="margin-top:6px;padding:4px 12px">위치 허용</button> <button id="locAskNo" style="margin-top:6px;padding:4px 12px">나중에</button></div>
 <div id="board"></div>
 <div id="msgBox">
   <div id="timeLine"></div>
@@ -378,6 +379,7 @@ function requestProg(item, from, to, onOk) {
   const undoLocal = () => { const r = getProgRaw(); if (prev) r[k] = prev; else delete r[k]; saveProgRaw(r); };
   render(); updateBox();
   if (onOk) { try { onOk(); } catch (e) {} onOk = null; }
+  if (to === 'shared' || to === 'run' || to === 'done') locSend(to === 'shared' ? 'share' : to === 'run' ? 'start' : 'done');   // v35 위치 (실패해도 무시)
   const info = { d: curD, rk: k, veh: item.veh, title: item.title, route: item.route, n: item.n,
                  s: item.pending ? '' : item.s, time: item.time, from: from, to: to };
   const end = () => { delete busy[k]; render(); if (currentItem && rkOf(currentItem) === k) updateBox(); };
@@ -513,16 +515,17 @@ function renderBoard() {
   const BADGE = ['<span class="bd-badge run">▶ 운행중</span>', '<span class="bd-badge shared">📤 공유됨</span>',
                  '<span class="bd-badge wait">대기</span>', '<span class="bd-badge end">오늘 배차 끝</span>'];
   el.innerHTML = '<div class="bd-title">차량 현황</div>' + rows.map((r, i) => {
-    const subs = [];
+    const subs = [], lh = locHtml(r.veh);
     if (r.runIt) subs.push(esc('▶ ' + jobName(r.runIt) + (fld(r.runIt, 'start') ? ' · ' + fld(r.runIt, 'start') + ' 시작' : '')) + (changedAfterShare(r.runIt) ? '<span class="tc-badge">공유 후 시간변경</span>' : ''));
     else if (r.shIt) subs.push(esc('📤 ' + jobName(r.shIt) + (fld(r.shIt, 'shared') ? ' · ' + fld(r.shIt, 'shared') + ' 공유' : '')) + (changedAfterShare(r.shIt) ? '<span class="tc-badge">공유 후 시간변경 · 시간·관리자·카톡 확인</span>' : ''));
     if (r.next) subs.push(esc('다음 ' + jobName(r.next)) + (r.next.first ? ' ' + firstHtml(r.next) : '') + (timeFlag(r.next) ? '<span class="tc-badge">시간변경</span>' : ''));
     const lateTxt = r.late.length ? esc('⚠ 납입시간 지남: ') + r.late.map(x => esc(jobName(x)) + (x.first ? ' ' + firstHtml(x) : '')).join(', ') : '';
     return '<div class="bd-row" data-i="' + i + '"><div class="bd-main"><div class="bd-veh">' + esc(r.veh) + '</div>' +
       (subs.length ? '<div class="bd-sub">' + subs.join(' &nbsp;·&nbsp; ') + '</div>' : '') +
-      (lateTxt ? '<div class="bd-late">' + lateTxt + '</div>' : '') + '</div>' +
+      (lateTxt ? '<div class="bd-late">' + lateTxt + '</div>' : '') + lh + '</div>' +
       '<div style="text-align:right">' + BADGE[r.rank] + '<div class="bd-cnt">완료 ' + r.done + '/' + r.total + '</div></div></div>';
   }).join('');
+  el.querySelectorAll('.bd-loc a').forEach(a => a.onclick = ev => ev.stopPropagation());
   el.querySelectorAll('.bd-row').forEach(rowEl => rowEl.onclick = () => {
     const veh = rows[+rowEl.dataset.i].veh;
     const g = [...document.querySelectorAll('#container .group')].find(x => x.dataset.veh === veh);
@@ -702,6 +705,57 @@ function copyMsg() {
   else fail();
 }
 
+
+// ── v35 차량 위치 (서버 config.loc 있을 때만 동작, 실패는 조용히 무시) ──
+let LOC_ON = false, LOCS = {}, locLastSent = 0, locBusy = false;
+const LOC_EVERY = 180000;
+const locHasTrip = () => { const p = getProg(); return Object.values(data || {}).some(items => items.some(x => !x.cancelled && (p[rkOf(x)] === 'run' || p[rkOf(x)] === 'shared'))); };
+function locSend(ev) {
+  if (!LOC_ON || MODE !== 'driver' || !navigator.geolocation || localStorage.getItem('locDeny') === '1') return;
+  if (ev === 'tick' && (locBusy || document.hidden || !locHasTrip() || Date.now() - locLastSent < LOC_EVERY - 5000)) return;
+  locBusy = true;
+  try {
+    navigator.geolocation.getCurrentPosition(pos => {
+      locBusy = false; locLastSent = Date.now();
+      const c = pos.coords, info = { lat: +c.latitude.toFixed(6), lng: +c.longitude.toFixed(6), acc: Math.round(c.accuracy || 0), ev: ev };
+      api('logLoc', { info: info }).catch(() => {});
+    }, err => { locBusy = false; if (err && err.code === 1) { try { localStorage.setItem('locDeny', '1'); } catch (e) {} } },
+    { enableHighAccuracy: false, timeout: 20000, maximumAge: 60000 });
+  } catch (e) { locBusy = false; }
+}
+function locInit() {
+  if (!LOC_ON || MODE !== 'driver' || !navigator.geolocation) return;
+  const box = document.getElementById('locAsk');
+  const ask = () => { box.style.display = 'none'; try { localStorage.setItem('locAsked', '1'); localStorage.removeItem('locDeny'); } catch (e) {} locSend('open'); };
+  document.getElementById('locAskBtn').onclick = ask;
+  document.getElementById('locAskNo').onclick = () => { box.style.display = 'none'; try { localStorage.setItem('locAsked', '1'); } catch (e) {} };
+  const q = navigator.permissions && navigator.permissions.query ? navigator.permissions.query({ name: 'geolocation' }).catch(() => null) : Promise.resolve(null);
+  q.then(st => {
+    if (st && st.state === 'granted') { try { localStorage.removeItem('locDeny'); } catch (e) {} return; }
+    if (st && st.state === 'denied') return;
+    if (localStorage.getItem('locAsked') !== '1') box.style.display = 'block';
+  });
+  setInterval(() => locSend('tick'), 30000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) locSend('tick'); });
+}
+function locLoadAdmin() {
+  if (!LOC_ON || MODE !== 'admin' || document.hidden) return;
+  api('getLocs', {}).then(r => { if (r && r.ok) { LOCS = r.locs || {}; renderBoard(); } }).catch(() => {});
+}
+function locHtml(veh) {
+  if (!LOC_ON) return '';
+  const car = Object.keys(LOCS).find(c => new RegExp('(^|\\D)' + c + '(\\D|$)').test(veh));
+  if (!car) return '';
+  const L = LOCS[car], ago = Math.max(0, Math.round((Date.now() - L.ms) / 60000)), d = new Date(L.ms);
+  const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  const agoTxt = ago < 1 ? '방금' : ago < 60 ? ago + '분 전' : ago < 1440 ? Math.floor(ago / 60) + '시간 전' : Math.floor(ago / 1440) + '일 전';
+  const old = ago > 15, k = 'https://map.kakao.com/link/map/' + encodeURIComponent(car) + ',' + L.lat + ',' + L.lng;
+  const n = 'https://map.naver.com/p/search/' + L.lat + ',' + L.lng;
+  return '<div class="bd-loc" style="font-size:12px;margin-top:2px;color:' + (old ? '#aaa' : '#1565c0') + '">📍 위치 ' + hm + ' · ' + agoTxt +
+    ' &nbsp;<a href="' + k + '" target="_blank" rel="noopener" style="color:inherit">카카오맵</a> · <a href="' + n + '" target="_blank" rel="noopener" style="color:inherit">네이버</a></div>';
+}
+setInterval(locLoadAdmin, 60000);
+
 function showSheetInfo() {
   run().withSuccessHandler(r => {
     if (!r.ok) return;
@@ -734,6 +788,7 @@ function applyCfg(cfg) {
   if (MODE === 'admin') { document.getElementById('adminSettings').style.display = 'block'; document.getElementById('adminReset').style.display = 'block'; }
 }
 function start() { if (started) return; started = true; if (MODE === 'admin') showSheetInfo(); load(curD || todayMmdd()); }
+function locStart(cfg) { if (LOC_ON || !cfg || !cfg.loc) return; LOC_ON = true; locInit(); locLoadAdmin(); }
 (() => { let c = null; try { c = JSON.parse(localStorage.getItem(cfgKey)); } catch (e) {}
   if (c && c.ok && c.mode !== 'none') { applyCfg(c); start(); } })();
 run().withSuccessHandler(cfg => {
@@ -743,7 +798,7 @@ run().withSuccessHandler(cfg => {
     document.getElementById('info').textContent = (cfg && cfg.error) || '접근 권한이 없습니다.'; return;
   }
   try { localStorage.setItem(cfgKey, JSON.stringify(cfg)); } catch (e) {}
-  applyCfg(cfg); if (started) render(); start();
+  applyCfg(cfg); if (started) render(); start(); locStart(cfg);
 }).withFailureHandler(e => { if (!started) document.getElementById('info').textContent = '오류: ' + e.message; }).config();
 </script>
 </body>
