@@ -52,6 +52,7 @@
   .undo-btn { flex: 1; padding: 14px; border: 1px solid #999; border-radius: 8px; background: #fff; font-size: 14px; }
   .box-state { white-space: pre-line; text-align: center; font-size: 13px; color: #555; margin-top: 6px; }
   .close-btn { width: 100%; margin-top: 8px; padding: 10px; border: none; border-radius: 8px; background: #eee; }
+  .btn.done-mini { padding: 8px 12px; margin-bottom: 6px; font-size: 13px; font-weight: normal; background: #eeeeee; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .done-row { display: flex; align-items: center; gap: 8px; }
   .done-row .btn { flex: 1; }
   .undo { font-size: 12px; color: #555; white-space: nowrap; margin-bottom: 8px; }
@@ -446,7 +447,7 @@ function boxStateTap() {
   const o = (pr === '' || pr === 'shared') ? otherRunning(item) : null;   // 운행 시작만 막음 (차량당 운행중 1건)
   if (o) { say('먼저 운행중인 ' + jobName(o) + '를 완료하세요'); return; }
   if (pr === '' || pr === 'shared') requestProg(item, pr, 'run', () => say('운행 시작했어요.'));
-  else if (pr === 'run') requestProg(item, 'run', 'done', () => { closeBox(); say('완료 처리했어요.'); });
+  else if (pr === 'run') requestProg(item, 'run', 'done', () => { closeBox(); render(); say('완료 처리했어요.'); });   // 완료 → 접힘
 }
 function boxUndoTap() {
   const item = currentItem; if (!item || debounced() || busy[rkOf(item)]) return;
@@ -552,7 +553,8 @@ function renderCards() {
     const div = document.createElement('div'); div.className = 'group'; div.dataset.veh = vehicle;
     const t = document.createElement('div'); t.className = 'group-title'; t.textContent = vehicle + ' (' + items.length + ')';
     div.appendChild(t);
-    [...items].sort((a, b) => a.min - b.min).forEach(item => {
+    const isDone = x => !x.cancelled && prog[rkOf(x)] === 'done';   // 완료는 맨 아래
+    [...items].sort((a, b) => (isDone(a) - isDone(b)) || (a.min - b.min)).forEach(item => {
       const b = document.createElement('button');
       const ss = sentState(item, st), pr = prog[rkOf(item)] || '', changed = ss.state === 'changed';
       let cls = 'btn' + (item.pending ? ' pending' : ''), label = item.title;
@@ -562,6 +564,11 @@ function renderCards() {
         b.className = 'btn cancelled' + (touched ? ' cancel-alert' : '');
         b.innerHTML = '<s>' + esc(item.title) + '</s>  ' + (touched ? '✖ 취소됨 (기사님께 알리세요)' : '✖ 취소');
         b.disabled = true; div.appendChild(b); return;
+      }
+      if (pr === 'done' && !(currentItem && rkOf(currentItem) === rkOf(item))) {   // 완료: 한 줄로 접기 (누르면 펼침)
+        const dt = progInfo(item).done;
+        b.className = 'btn done-mini'; b.textContent = '✅ ' + item.title + '  완료' + (dt ? ' ' + dt : '');
+        b.dataset.rk = rkOf(item); b.onclick = () => tapCard(item); div.appendChild(b); return;
       }
       if (pr === 'done') { cls += ' done'; label += '  ✔ 완료'; }
       else if (pr === 'run') { cls += ' run'; label += '  ▶ 운행중'; }
