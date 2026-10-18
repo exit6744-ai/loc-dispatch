@@ -231,10 +231,13 @@ function mmddToDate(d) { return new Date(YEAR, +d.slice(0, 2) - 1, +d.slice(2));
 function dateToMmdd(dt) { return ('0' + (dt.getMonth() + 1)).slice(-2) + ('0' + dt.getDate()).slice(-2); }
 function isoOf(dt) { return dt.getFullYear() + '-' + ('0' + (dt.getMonth() + 1)).slice(-2) + '-' + ('0' + dt.getDate()).slice(-2); }
 // 제목 클릭 → 오늘 근무일 (06:00 이전은 전날 근무일). 일요일(휴무)이면 토요일 탭 → 끝났으면 자동으로 월요일
-function todayMmdd() { const dt = new Date(); if (dt.getHours() < 6) dt.setDate(dt.getDate() - 1); if (dt.getDay() === 0) dt.setDate(dt.getDate() - 1); return dateToMmdd(dt); }
-function goToday() { closeBox(); advOff(); load(todayMmdd()); }
-function shift(n) { advOff(); const dt = mmddToDate(curD); dt.setDate(dt.getDate() + n); load(dateToMmdd(dt)); }
-function pick(v) { if (v) { advOff(); load(v.slice(5, 7) + v.slice(8, 10)); } }
+// v43 오늘 근무일 = 06:00 기준 날짜. 그 탭이 없으면(일요일·휴일) 서버 res.next(10일 안 다음 탭)로 이동 → TAB_FWD 에 기억
+let TAB_FWD = {}, AUTO_D = !curD;
+function baseMmdd() { const dt = new Date(); if (dt.getHours() < 6) dt.setDate(dt.getDate() - 1); return dateToMmdd(dt); }
+function todayMmdd() { const b = baseMmdd(); return TAB_FWD[b] || b; }
+function goToday() { closeBox(); advOff(); AUTO_D = true; load(todayMmdd()); }
+function shift(n) { advOff(); AUTO_D = false; const dt = mmddToDate(curD); dt.setDate(dt.getDate() + n); load(dateToMmdd(dt)); }
+function pick(v) { AUTO_D = false; if (v) { advOff(); load(v.slice(5, 7) + v.slice(8, 10)); } }
 // 오늘 배차가 모두 완료/취소 → 다음 근무일 탭 자동 표시 (탭 없으면 오늘 유지). ?d= 지정·날짜 직접 선택 시 끔
 let ADV = { on: !curD, trying: '', today: '', next: '' };
 function advOff() { ADV.on = false; ADV.trying = ''; showAdvNote(); }
@@ -296,6 +299,7 @@ function load(d, silent) {
       const wasStale = showingStale; showingStale = false;
       stampRefresh();
       if (!res.ok && curD === ADV.trying) { ADV.trying = ''; ADV.on = false; load(ADV.today); return; }
+      if (!res.ok && AUTO_D && res.next && res.d === todayMmdd()) { TAB_FWD[baseMmdd()] = res.next; load(res.next); return; }   // v43 오늘 탭 없음 → 다음 탭
       if (!res.ok) { data = {}; document.getElementById('container').innerHTML = ''; document.getElementById('info').textContent = res.error; return; }
       saveGc(res);
       mergeProgress(res.progress);   // 서버 기준 (처리중 요청 busy 제외) → 저장본보다 항상 우선
