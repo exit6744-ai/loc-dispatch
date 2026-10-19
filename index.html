@@ -798,7 +798,13 @@ function autoDepTarget() {
   return (pr === '' || pr === 'shared') ? nx : null;
 }
 function autoDepCheck(c) {
-  const it = autoDepTarget(); if (!it) return;
+  const it = autoDepTarget();
+  if (MODE === 'driver' && curD === todayMmdd()) {                // 1019: 머묾은 카드별 — 운행중이거나 다음 카드가 바뀌면 초기화
+    const k0 = AUTO_KEY + curD, rk0 = it ? rkOf(it) : '';
+    let s0 = {}; try { s0 = JSON.parse(localStorage.getItem(k0)) || {}; } catch (e) {}
+    if (s0.rk !== rk0 || !it) { if (s0.in || s0.last || s0.rk !== rk0) { s0.in = 0; s0.last = 0; s0.rk = rk0; try { localStorage.setItem(k0, JSON.stringify(s0)); } catch (e) {} } }
+  }
+  if (!it) return;
   const lp = pickByKeys(GEO.load, String(it.route || '') + ' ' + String(it.title || '')); if (!lp) return;
   const acc = Math.min(+c.accuracy || 0, 300), d = distM(c.latitude, c.longitude, lp.lat, lp.lng), rad = +lp.rad || 1000;
   const k = AUTO_KEY + curD, now = Date.now();
@@ -807,7 +813,7 @@ function autoDepCheck(c) {
   if (d <= rad && acc <= 150) {                                    // 반경 안 (정확도 괜찮을 때만)
     if (!st.in || now - st.last > 30 * 60000) st.in = now;         // 30분 넘게 끊겼으면 새로 머묾 시작
     st.last = now;
-  } else if (d > rad + Math.max(100, acc) && st.in && st.last && st.last - st.in >= AUTO_DWELL && now - st.last < 60 * 60000) {
+  } else if (d > rad + Math.max(100, acc) && st.in && st.last && st.last - st.in >= AUTO_DWELL && now - st.last < 20 * 60000) {   // 1019: 60→20분
     st.fired = st.fired || {}; st.fired[rkOf(it)] = now; st.in = 0; st.last = 0;
     try { localStorage.setItem(k, JSON.stringify(st)); } catch (e) {}
     const pr = curProg(it);
