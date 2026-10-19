@@ -722,19 +722,29 @@ function copyMsg() {
 // ── v35 차량 위치 (서버 config.loc 있을 때만 동작, 실패는 조용히 무시) ──
 let LOC_ON = false, LOCS = {}, ARRS = {}, locLastSent = 0, locBusy = false;
 const LOC_EVERY = 180000;
+let LOC_IDLE = null;   // 1019 {lat, lng, at, every} 서버 idle 응답 때
+const locDistM = (a1, o1, a2, o2) => { const t = Math.PI / 180, x = (o2 - o1) * t * Math.cos((a1 + a2) / 2 * t), y = (a2 - a1) * t; return 6371000 * Math.sqrt(x * x + y * y); };
 const locHasTrip = () => { const p = getProg(); return Object.values(data || {}).some(items => items.some(x => !x.cancelled && (p[rkOf(x)] === 'run' || p[rkOf(x)] === 'shared'))) || !!autoDepTarget(); };
 const locHasRun = () => { const p = getProg(); return Object.values(data || {}).some(items => items.some(x => !x.cancelled && p[rkOf(x)] === 'run')); };
 function locSend(ev) {
   if (!LOC_ON || MODE !== 'driver' || !navigator.geolocation || localStorage.getItem('locDeny') === '1') return;
   if (ev === 'tick' && (locBusy || document.hidden || !locHasTrip() || Date.now() - locLastSent < LOC_EVERY - 5000)) return;
+  if (ev !== 'tick') LOC_IDLE = null;   // 1019 공유/시작/완료 등 → idle 해제
   locBusy = true;
   try {
     navigator.geolocation.getCurrentPosition(pos => {
       locBusy = false; locLastSent = Date.now();
       const c = pos.coords, info = { lat: +c.latitude.toFixed(6), lng: +c.longitude.toFixed(6), acc: Math.round(c.accuracy || 0), ev: ev };
+      // 1019 서버 idle(공유만·주차): 30분(every)에 1번만 전송, 주차 지점에서 300m 넘게 움직이면 즉시 정상
+      if (LOC_IDLE && ev === 'tick') {
+        if (locDistM(info.lat, info.lng, LOC_IDLE.lat, LOC_IDLE.lng) > 300 && info.acc <= 200) LOC_IDLE = null;
+        else if (Date.now() - LOC_IDLE.at < LOC_IDLE.every - 5000) { try { autoDepCheck(c); } catch (e) {} return; }
+      }
       const pr = getProg(), ri = [].concat(...Object.values(data || {})).find(x => !x.cancelled && pr[rkOf(x)] === 'run');
       if (ri) info.trip = { s: 'run', d: curD, rk: rkOf(ri), route: ri.route, title: ri.title };   // 도착 판정용
-      api('logLoc', { info: info }).then(r => { if (r && r.ok) { locLastOk = Date.now(); locWarnCheck(); } }).catch(() => {});
+      api('logLoc', { info: info }).then(r => { if (r && r.ok) { locLastOk = Date.now(); locWarnCheck();
+        if (r.idle && +r.every > 0) { if (!LOC_IDLE || r.stored) LOC_IDLE = { lat: info.lat, lng: info.lng, at: Date.now(), every: Math.min(+r.every, 3600) * 1000 }; }
+        else LOC_IDLE = null; } }).catch(() => {});
       try { autoDepCheck(c); } catch (e) {}
     }, err => { locBusy = false; if (err && err.code === 1) { try { localStorage.setItem('locDeny', '1'); } catch (e) {} locWarnCheck(); } },
     { enableHighAccuracy: false, timeout: 20000, maximumAge: 60000 });
