@@ -806,7 +806,7 @@ function segOf(txt, lat, lng) {
   for (let j = 1; j < R.cps.length - 1; j++) if (along >= R.cps[j] * sc) n = j + 1;
   return R.name + '노선 ' + n + '구간';
 }
-// 자동 출발: 그 근무일(오늘) 다음 미완료 카드가 대기/공유이고, 상차지 반경 안에 3분 이상 머문 뒤 반경 밖으로 나가면 운행 시작(src 'auto') 1번
+// 자동 출발: 그 근무일(오늘) 다음 미완료 카드가 공유(1019b: 대기 제외)이고, 상차지 반경 안에 3분 이상 머문 뒤 반경 밖으로 나가면 운행 시작(src 'auto') 1번
 const AUTO_DWELL = 3 * 60000, AUTO_KEY = 'autoDep_';
 function autoDepTarget() {
   if (MODE !== 'driver' || !GEO_SRV || !GEO.load.length || curD !== todayMmdd()) return null;
@@ -815,7 +815,7 @@ function autoDepTarget() {
   const nx = all.find(x => p[rkOf(x)] !== 'done');
   if (!nx) return null;
   const pr = p[rkOf(nx)] || '';
-  return (pr === '' || pr === 'shared') ? nx : null;
+  return pr === 'shared' ? nx : null;   // 1019b: 공유 카드만 (다음 카드가 대기면 자동 출발 안 함)
 }
 function autoDepCheck(c) {
   const it = autoDepTarget();
@@ -829,15 +829,15 @@ function autoDepCheck(c) {
   const acc = Math.min(+c.accuracy || 0, 300), d = distM(c.latitude, c.longitude, lp.lat, lp.lng), rad = +lp.rad || 1000;
   const k = AUTO_KEY + curD, now = Date.now();
   let st = {}; try { st = JSON.parse(localStorage.getItem(k)) || {}; } catch (e) {}
-  if (st.fired && st.fired[rkOf(it)]) return;                     // 이 카드는 이미 자동 시도함 (멱등)
+  const fr = (st.fired && st.fired[rkOf(it)]) || 0;               // 1019b: 이 카드 마지막 자동 시도 시각 → 그 뒤에 시작한 새 머묾에서만 다시 가능 (되돌린 카드)
   if (d <= rad && acc <= 150) {                                    // 반경 안 (정확도 괜찮을 때만)
     if (!st.in || now - st.last > 30 * 60000) st.in = now;         // 30분 넘게 끊겼으면 새로 머묾 시작
     st.last = now;
-  } else if (d > rad + Math.max(100, acc) && st.in && st.last && st.last - st.in >= AUTO_DWELL && now - st.last < 20 * 60000) {   // 1019: 60→20분
+  } else if (d > rad + Math.max(100, acc) && st.in && st.in > fr && st.last && st.last - st.in >= AUTO_DWELL && now - st.last < 20 * 60000) {   // 1019: 60→20분
     st.fired = st.fired || {}; st.fired[rkOf(it)] = now; st.in = 0; st.last = 0;
     try { localStorage.setItem(k, JSON.stringify(st)); } catch (e) {}
     const pr = curProg(it);
-    if ((pr === '' || pr === 'shared') && !busy[rkOf(it)] && !otherRunning(it))
+    if (pr === 'shared' && !busy[rkOf(it)] && !otherRunning(it))
       requestProg(it, pr, 'run', () => say('상차지를 떠나 운행 시작으로 자동 기록했어요.'), 'auto');
     return;
   }
