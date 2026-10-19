@@ -350,9 +350,9 @@ let lastStamp = '';
 function stampRefresh(note) {
   const n = new Date(), p = x => ('0' + x).slice(-2);
   if (!note) lastStamp = '마지막 갱신 ' + p(n.getHours()) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds());
-  document.getElementById('lastRefresh').textContent = (lastStamp || '') + (note || '') + ' · v39';
+  document.getElementById('lastRefresh').textContent = (lastStamp || '') + (note || '') + ' · v39d';
 }
-function markUpdating() { document.getElementById('lastRefresh').textContent = (lastStamp ? lastStamp + ' · ' : '') + '업데이트 중… · v39'; }
+function markUpdating() { document.getElementById('lastRefresh').textContent = (lastStamp ? lastStamp + ' · ' : '') + '업데이트 중… · v39d'; }
 setInterval(() => { if (!document.hidden && curD) load(curD, true); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && curD) load(curD, true); });
 
@@ -715,6 +715,21 @@ async function sendKakao() {
   if (!IN_IFRAME && !IS_ANDROID && navigator.share) {   // 안드로이드는 카톡 공유 인텐트(kakaoShareIntent)가 1순위
     try { await navigator.share({ text: currentMsg }); sentAndRun(); say('보냈어요.'); return; }
     catch (e) { if (e.name === 'AbortError') { say('취소됨'); return; } }
+  }
+  // 1019d: KORA 앱(v2.1+) WebView → JS bridge AndroidShare.share(text, url, title) 직접 호출 (intent 링크·800ms 재시도 안 씀)
+  if (window.AndroidShare && typeof AndroidShare.share === 'function') {
+    copySync(currentMsg);
+    let shared = false;
+    try { AndroidShare.share(String(currentMsg), '', ''); shared = true; } catch (e) { shared = false; }
+    if (shared) { sentAndRun(); say('공유창에서 카톡 방을 고르세요 (메시지 자동 입력)'); return; }
+    // bridge 실패 → 아래 기존 intent 경로로
+  } else if (IS_ANDROID && /; wv\)/.test(navigator.userAgent)) {
+    // 1019d: 옛 KORA 앱(v1/v2, bridge 없음): 복사 후 기존 openKakaoApp — intent 는 실패해도 800ms 뒤 kakaotalk:// 로 카톡은 열림
+    if (copySync(currentMsg)) {
+      sentAndRun(); say('복사됨 → 카톡 방에서 붙여넣기 (KORA 앱 업데이트하면 방 선택 화면이 떠요)');
+      openKakaoApp(currentMsg);
+      return;
+    }
   }
   // 2순위(Apps Script 기본 경로): 동기 복사 + 카카오톡 앱 열기 — await 없이 제스처 안에서
   const ok = copySync(currentMsg);
