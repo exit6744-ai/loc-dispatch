@@ -59,6 +59,7 @@
   .done-row .btn { flex: 1; }
   .undo { font-size: 12px; color: #555; white-space: nowrap; margin-bottom: 8px; }
   .btn.pending { border: 2px dashed #3c1e1e; }
+  .copy-btn:disabled { background: #eee; color: #999; }
   .send-btn:disabled { background: #eee; color: #999; border-color: #ccc; }
   .pend-note { display: none; font-size: 13px; color: #b26a00; margin: -2px 0 8px; }
   .settings { background: #fff; border-radius: 12px; padding: 12px; margin: 14px 0; font-size: 13px; }
@@ -103,9 +104,10 @@
   <div id="diffLine"></div>
   <div id="tcLine"></div>
   <div id="msgContent"></div>
+  <div id="shareHint" style="display:none;font-size:13px;font-weight:bold;color:#c62828;background:#ffebee;border-radius:8px;padding:6px 8px;margin-bottom:6px"></div>
   <button class="send-btn" id="sendBtn" onclick="sendKakao()">💬 카톡으로 보내기</button>
   <div class="pend-note" id="pendNote">Consol No.가 아직 없어요 (16시 이후 업데이트). 카톡 보내기는 Consol No.가 나온 뒤에 — 지금은 복사만 가능.</div>
-  <button class="copy-btn" onclick="copyMsg()">메시지 복사하기</button>
+  <button class="copy-btn" id="copyBtn" onclick="copyMsg()">메시지 복사하기</button>
   <button class="kakao-btn" id="kakaoBtn" style="display:none" onclick="sendViaKakaoSdk()">카카오 공유(SDK)로 보내기</button>
   <div class="state-row">
     <button class="state-btn" id="stateBtn" onclick="boxStateTap()"></button>
@@ -403,6 +405,7 @@ function requestProg(item, from, to, onOk, src) {
   run()
     .withSuccessHandler(r => {
       if (r && r.ok) { applyServerProg(item, r.prog); say(''); end(); if (onOk) onOk(); return; }
+      if (r && r.reason === 'shareBusy') { undoLocal(); say(r.error || '이미 공유/운행중인 카드가 있어요'); end(); load(curD, true); return; }
       if (r && r.reason === 'busy') { undoLocal(); say('먼저 운행중인 ' + r.other + '를 완료하세요'); end(); load(curD, true); return; }
       if (r && r.conflict) {
         applyServerProg(item, r.prog);
@@ -455,6 +458,13 @@ function otherRunning(item) {
   return (data[item.veh] || []).find(x => rkOf(x) !== rkOf(item) && !x.cancelled && prog[rkOf(x)] === 'run') || null;
 }
 const jobName = x => x.route + ' ' + x.n + '차';
+// 1019c: 기사 — 같은 차량의 다른 공유/운행중 카드가 있으면 이 카드(대기)는 공유 못 함 (같은 카드 재공유는 가능)
+function shareBlocker(item) {
+  if (MODE !== 'driver' || !item || curProg(item) !== '') return null;
+  const prog = getProg();
+  return (data[item.veh] || []).find(x => rkOf(x) !== rkOf(item) && !x.cancelled && (prog[rkOf(x)] === 'shared' || prog[rkOf(x)] === 'run')) || null;
+}
+const shareBlockMsg = o => '이미 공유/운행중인 카드(' + jobName(o) + ')가 있어요. 그 카드를 먼저 완료하거나 되돌린 뒤 공유하세요.';
 function boxStateTap() {
   const item = currentItem; if (!item || debounced() || busy[rkOf(item)]) return;
   const pr = curProg(item);
@@ -494,6 +504,10 @@ function updateBox() {
     (o ? '\n운행 시작 전에 먼저 운행중인 ' + jobName(o) + '를 완료하세요 (카톡 공유는 가능)' : '');
   applyPending(item);
   if (pr === 'done') document.getElementById('sendBtn').disabled = true;   // 공유는 다른 카드 운행중이어도 가능
+  const sbk = shareBlocker(item), shint = document.getElementById('shareHint');   // 1019c
+  if (sbk) document.getElementById('sendBtn').disabled = true;
+  { const cb = document.getElementById('copyBtn'); if (cb) cb.disabled = !!sbk; }   // 1019c: 복사도 막음
+  shint.style.display = sbk ? 'block' : 'none'; shint.textContent = sbk ? '🔒 ' + shareBlockMsg(sbk) : '';
   showTimes(item);
 }
 
@@ -649,12 +663,13 @@ function showMsg(item) {
 function sentAndRun() {
   const item = currentItem; if (!item) return;
   setSent(item); document.getElementById('diffLine').style.display = 'none';
-  if (curProg(item) === '') requestProg(item, '', 'shared', () => {}); else render();
+  if (curProg(item) === '') { const o = shareBlocker(item); if (o) { render(); say(shareBlockMsg(o)); return; } requestProg(item, '', 'shared', () => {}); } else render();   // 1019c
 }
 function markSent() { if (currentItem) { setSent(currentItem); document.getElementById('diffLine').style.display = 'none'; render(); } }
 
 function sendViaKakaoSdk() {
   if (!currentMsg || !kakaoReady || (currentItem && currentItem.pending)) return false;
+  { const o = shareBlocker(currentItem); if (o) { say(shareBlockMsg(o)); return true; } }   // 1019c
   try {
     const url = APP_URL || 'https://script.google.com';
     Kakao.Share.sendDefault({ objectType: 'text', text: currentMsg, link: { mobileWebUrl: url, webUrl: url } });
@@ -694,6 +709,7 @@ function openKakaoApp(text) {
 
 async function sendKakao() {
   if (!currentMsg || (currentItem && (currentItem.pending || curProg(currentItem) === 'done'))) return;
+  { const o = shareBlocker(currentItem); if (o) { say(shareBlockMsg(o)); return; } }   // 1019c: 막히면 카톡 안 엶
   // v28: 보내기(공유)는 같은 차량에 운행중 배차가 있어도 가능 (운행 시작만 막음)
   // 1순위: 최상위 창(iframe 아님)이고 공유 기능이 있으면 휴대폰 공유창
   if (!IN_IFRAME && !IS_ANDROID && navigator.share) {   // 안드로이드는 카톡 공유 인텐트(kakaoShareIntent)가 1순위
@@ -722,6 +738,7 @@ function fallbackCopy(text) {
 }
 function copyMsg() {
   if (!currentMsg) return;
+  { const o = shareBlocker(currentItem); if (o) { say(shareBlockMsg(o)); return; } }   // 1019c: 복사·보냄 표시 안 함
   const done = () => { markSent(); say('복사 완료! 카톡에 붙여넣기 하세요.'); };
   const fail = () => fallbackCopy(currentMsg) ? done() : say('메시지를 길게 눌러 복사하세요.');
   if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(currentMsg).then(done).catch(fail);
