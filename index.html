@@ -17,6 +17,8 @@
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 12px; background: #f5f5f5; }
   #runCount { display: none; margin-top: 6px; font-size: 14px; font-weight: normal; color: #fff; }
   #runCount b { color: #fee500; }
+  #monCount { display: none; margin-top: 2px; font-size: 13px; font-weight: normal; color: #fff; opacity: .9; }
+  #monCount b { color: #fee500; }
   h1 { text-align: center; background: #3c1e1e; color: #fee500; padding: 16px; border-radius: 12px; margin: 0 0 12px 0; font-size: 20px; }
   .info { text-align: center; background: #fff3cd; padding: 10px; border-radius: 8px; margin-bottom: 14px; font-size: 14px; }
   .nav { display: flex; gap: 6px; margin-bottom: 12px; }
@@ -86,7 +88,7 @@
 </style>
 </head>
 <body>
-<h1 onclick="goToday()" style="cursor:pointer">Kora_LOC 운송 일정<span id="carTag"></span><div id="runCount"></div></h1>
+<h1 onclick="goToday()" style="cursor:pointer">Kora_LOC 운송 일정<span id="carTag"></span><div id="runCount"></div><div id="monCount"></div></h1>
 <div class="nav">
   <button onclick="shift(-1)">◀ 전날</button>
   <input type="date" id="datePick" onchange="pick(this.value)">
@@ -281,7 +283,16 @@ function showRuns(r) {
   const el = document.getElementById('runCount');
   if (MODE !== 'driver' || !r) { if (!r && el.dataset.on) return; el.style.display = 'none'; return; }   // 다른 날짜 응답에 runs 없으면 마지막 값 유지
   el.dataset.on = '1'; el.style.display = 'block';
-  el.innerHTML = '오늘 <b>' + r.done + '/' + r.total + '</b>' + (r.cum == null ? '' : ' · 누적 <b>' + r.cum + '회</b>');
+  el.innerHTML = (r.today === false && r.d ? r.d.slice(0, 2) + '/' + r.d.slice(2) : '오늘') + ' <b>' + r.done + '/' + r.total + '</b>' + (r.cum == null ? '' : ' · 누적 <b>' + r.cum + '회</b>');
+}
+// 직전 정산 기간(24일~다음 달 23일) 완료 건수만 표시: 예) 10월 완료 N건. 오류면 조용히 숨김
+function showMonth() {
+  if (MODE !== 'driver') return;
+  api('myCount').then(r => {
+    const x = r && r.ok && r.prev;
+    if (!x || !x.label || x.n == null) return;
+    const el = document.getElementById('monCount'); el.innerHTML = x.label + ' 완료 <b>' + x.n + '건</b>'; el.style.display = 'block';
+  }).catch(() => {});
 }
 function load(d, silent) {
   if (silent && loading) return;
@@ -967,7 +978,7 @@ function applyCfg(cfg) {
   if (kakaoReady) document.getElementById('kakaoBtn').style.display = 'block';
   if (MODE === 'admin') { document.getElementById('adminSettings').style.display = 'block'; document.getElementById('adminReset').style.display = 'block'; }
 }
-function start() { if (started) return; started = true; if (MODE === 'admin') showSheetInfo(); load(curD || todayMmdd()); }
+function start() { if (started) return; started = true; if (MODE === 'admin') showSheetInfo(); load(curD || todayMmdd()); showMonth(); }
 function locStart(cfg) { if (LOC_ON || !cfg || !cfg.loc) return; LOC_ON = true; geoLoad(cfg); locInit(); locLoadAdmin(); }
 (() => { let c = null; try { c = JSON.parse(localStorage.getItem(cfgKey)); } catch (e) {}
   if (c && c.ok && c.mode !== 'none') { applyCfg(c); start(); } })();
