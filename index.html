@@ -785,7 +785,8 @@ const locMidDay = () => { const p = getProg(), it = (data && data[todayMmdd()]) 
   return live.some(x => p[rkOf(x)] === 'done') && live.some(x => p[rkOf(x)] !== 'done'); };
 let LOC_SRV_OFF = false, LOC_LAST_BTN = 0;
 const locCutMs = now => { const d = new Date(now); d.setHours(23, 30, 0, 0); if (d.getTime() > now) d.setDate(d.getDate() - 1); return d.getTime(); };
-const locCutOff = () => LOC_LAST_BTN < locCutMs(Date.now()) && (new Date().getHours() * 60 + new Date().getMinutes() >= 1410 || LOC_SRV_OFF);
+const locCutOff = () => !locHasTrip() && LOC_LAST_BTN < locCutMs(Date.now()) &&   // v60: 공유·운행중 카드 있으면 23:30에도 계속
+   (new Date().getHours() * 60 + new Date().getMinutes() >= 1410 || LOC_SRV_OFF);
 function locTrkShow() {
   const el = document.getElementById('locTrk'); if (!el) return;
   if (!LOC_ON || MODE !== 'driver') { el.style.display = 'none'; return; }
