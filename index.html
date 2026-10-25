@@ -98,6 +98,7 @@
 <div class="info" id="info">불러오는 중…</div>
 <div class="refresh" id="lastRefresh"></div>
 <div class="status" id="status"></div>
+<div id="locTrk" style="display:none;margin:4px 0;font-size:13px;font-weight:bold;text-align:center"></div>
 <div id="locWarn" style="display:none;margin:6px 0;padding:10px;background:#d32f2f;color:#fff;border-radius:8px;font-size:15px;font-weight:bold;text-align:center">⚠ 위치 전송 중지됨 – 화면을 켜 두세요<div id="locWarnSub" style="font-size:12px;font-weight:normal;margin-top:3px"></div></div>
 <div id="locAsk" style="display:none;margin:6px 0;padding:8px 10px;background:#eef6ff;border:1px solid #b6d4f5;border-radius:8px;font-size:13px;color:#1a3550">📍 운행 중 차량 위치를 관리자에게 알려 주기 위해 위치 권한을 사용해요. (공유·시작·완료 때와 운행 중 약 3분마다, 화면이 켜져 있을 때만)<br><button id="locAskBtn" style="margin-top:6px;padding:4px 12px">위치 허용</button> <button id="locAskNo" style="margin-top:6px;padding:4px 12px">나중에</button></div>
 <div id="board"></div>
@@ -778,10 +779,31 @@ const LOC_EVERY = 180000;
 let LOC_IDLE = null;   // 1019 {lat, lng, at, every} 서버 idle 응답 때
 const locDistM = (a1, o1, a2, o2) => { const t = Math.PI / 180, x = (o2 - o1) * t * Math.cos((a1 + a2) / 2 * t), y = (a2 - a1) * t; return 6371000 * Math.sqrt(x * x + y * y); };
 const locHasTrip = () => { const p = getProg(); return Object.values(data || {}).some(items => items.some(x => !x.cancelled && (p[rkOf(x)] === 'run' || p[rkOf(x)] === 'shared'))) || !!autoDepTarget(); };
+// 1025 autotrack: 서버(trackState_)가 ON/OFF 판단 — 공유·시작 → ON, 마지막 카드 완료 → OFF, 23:30 일괄 OFF, 선상차 공유는 OFF(다음날 완료 때 ON).
+// 서버가 track:false(idle 아님) 주면 LOC_SRV_OFF → 주기 전송 멈춤. 공유·시작·완료(ev≠tick) 때 다시 물어봄. 이 폰에서도 23:30~ 다음 버튼 전엔 tick 안 보냄.
+const locMidDay = () => { const p = getProg(), it = (data && data[todayMmdd()]) || []; const live = it.filter(x => !x.cancelled && !x.placeholder);   // 카드 사이(일부 완료·남은 카드 있음) = 서버도 ON
+  return live.some(x => p[rkOf(x)] === 'done') && live.some(x => p[rkOf(x)] !== 'done'); };
+let LOC_SRV_OFF = false, LOC_LAST_BTN = 0;
+const locCutMs = now => { const d = new Date(now); d.setHours(23, 30, 0, 0); if (d.getTime() > now) d.setDate(d.getDate() - 1); return d.getTime(); };
+const locCutOff = () => LOC_LAST_BTN < locCutMs(Date.now()) && (new Date().getHours() * 60 + new Date().getMinutes() >= 1410 || LOC_SRV_OFF);
+function locTrkShow() {
+  const el = document.getElementById('locTrk'); if (!el) return;
+  if (!LOC_ON || MODE !== 'driver') { el.style.display = 'none'; return; }
+  const on = !LOC_SRV_OFF && !locCutOff() && (locHasTrip() || locMidDay()) && localStorage.getItem('locDeny') !== '1';
+  el.style.display = 'block'; el.style.color = on ? '#2e7d32' : '#888';
+  el.textContent = on ? '● 위치 기록 중' : '○ 위치 기록 꺼짐';
+}
+let locChkAt = 0;
+function locSrvRecheck() {   // OFF 상태에서 5분마다 가볍게 서버 상태 확인 (관리자 쪽 수정 반영)
+  if (!LOC_ON || MODE !== 'driver' || !LOC_SRV_OFF || document.hidden || Date.now() - locChkAt < 300000) return;
+  locChkAt = Date.now();
+  api('trackState', {}).then(r => { if (r && r.ok && r.track) { LOC_SRV_OFF = false; LOC_LAST_BTN = Date.now(); locTrkShow(); } }).catch(() => {});
+}
 const locHasRun = () => { const p = getProg(); return Object.values(data || {}).some(items => items.some(x => !x.cancelled && p[rkOf(x)] === 'run')); };
 function locSend(ev) {
   if (!LOC_ON || MODE !== 'driver' || !navigator.geolocation || localStorage.getItem('locDeny') === '1') return;
-  if (ev === 'tick' && (locBusy || document.hidden || !locHasTrip() || Date.now() - locLastSent < LOC_EVERY - 5000)) return;
+  if (ev === 'tick' && (locBusy || document.hidden || !(locHasTrip() || locMidDay()) || LOC_SRV_OFF || locCutOff() || Date.now() - locLastSent < LOC_EVERY - 5000)) return;
+  if (ev !== 'tick' && ev !== 'open') LOC_LAST_BTN = Date.now();   // 1025 공유·시작·완료 → 서버에 다시 물어봄
   if (ev !== 'tick') LOC_IDLE = null;   // 1019 공유/시작/완료 등 → idle 해제
   locBusy = true;
   try {
@@ -795,7 +817,8 @@ function locSend(ev) {
       }
       const pr = getProg(), ri = [].concat(...Object.values(data || {})).find(x => !x.cancelled && pr[rkOf(x)] === 'run');
       if (ri) info.trip = { s: 'run', d: curD, rk: rkOf(ri), route: ri.route, title: ri.title };   // 도착 판정용
-      api('logLoc', { info: info }).then(r => { if (r && r.ok) { locLastOk = Date.now(); locWarnCheck();
+      api('logLoc', { info: info }).then(r => { if (r && r.ok) { locLastOk = Date.now();
+        LOC_SRV_OFF = (r.track === false || r.tracking === false) && !r.idle; locTrkShow(); locWarnCheck();
         if (r.idle && +r.every > 0) { if (!LOC_IDLE || r.stored) LOC_IDLE = { lat: info.lat, lng: info.lng, at: Date.now(), every: Math.min(+r.every, 3600) * 1000 }; }
         else LOC_IDLE = null; } }).catch(() => {});
       try { autoDepCheck(c); } catch (e) {}
@@ -815,7 +838,8 @@ function locInit() {
     if (st && st.state === 'denied') return;
     if (localStorage.getItem('locAsked') !== '1') box.style.display = 'block';
   });
-  setInterval(() => { locSend('tick'); wakeSync(); locWarnCheck(); }, 30000);
+  setInterval(() => { locSend('tick'); locSrvRecheck(); locTrkShow(); wakeSync(); locWarnCheck(); }, 30000);
+  locTrkShow();
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { locVisibleSince = Date.now(); locSend('tick'); } wakeSync(); locWarnCheck(); });
   wakeSync();
 }
@@ -901,7 +925,7 @@ function wakeSync() {
 function locWarnCheck() {
   const el = document.getElementById('locWarn'); if (!el) return;
   let show = false, sub = '';
-  if (LOC_ON && MODE === 'driver' && !document.hidden && locHasRun()) {
+  if (LOC_ON && MODE === 'driver' && !document.hidden && locHasRun() && !LOC_SRV_OFF && !locCutOff()) {   // 1025 OFF 때는 경고 안 띄움
     const denied = localStorage.getItem('locDeny') === '1' || !navigator.geolocation;
     const since = Math.max(locLastOk, locVisibleSince);
     if (denied) { show = true; sub = '위치 권한이 꺼져 있어요 → 휴대폰 설정에서 이 사이트(브라우저) 위치 허용'; }
