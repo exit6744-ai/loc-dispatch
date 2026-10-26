@@ -784,9 +784,9 @@ const locHasTrip = () => { const p = getProg(); return Object.values(data || {})
 const locMidDay = () => { const p = getProg(), it = (data && data[todayMmdd()]) || []; const live = it.filter(x => !x.cancelled && !x.placeholder);   // 카드 사이(일부 완료·남은 카드 있음) = 서버도 ON
   return live.some(x => p[rkOf(x)] === 'done') && live.some(x => p[rkOf(x)] !== 'done'); };
 let LOC_SRV_OFF = false, LOC_LAST_BTN = 0;
-const locCutMs = now => { const d = new Date(now); d.setHours(23, 30, 0, 0); if (d.getTime() > now) d.setDate(d.getDate() - 1); return d.getTime(); };
+const locCutMs = now => { const d = new Date(now); d.setHours(1, 0, 0, 0); if (d.getTime() > now) d.setDate(d.getDate() - 1); return d.getTime(); };
 const locCutOff = () => !locHasTrip() && LOC_LAST_BTN < locCutMs(Date.now()) &&   // v60: 공유·운행중 카드 있으면 23:30에도 계속
-   (new Date().getHours() * 60 + new Date().getMinutes() >= 1410 || LOC_SRV_OFF);
+   ((m => m >= 60 && m < 360)(new Date().getHours() * 60 + new Date().getMinutes()) || LOC_SRV_OFF);   // cutoff0100: 01:00~06:00
 function locTrkShow() {
   const el = document.getElementById('locTrk'); if (!el) return;
   if (!LOC_ON || MODE !== 'driver') { el.style.display = 'none'; return; }
