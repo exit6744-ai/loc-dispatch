@@ -796,9 +796,9 @@ function locTrkShow() {
 }
 let locChkAt = 0;
 function locSrvRecheck() {   // OFF 상태에서 5분마다 가볍게 서버 상태 확인 (관리자 쪽 수정 반영)
-  if (!LOC_ON || MODE !== 'driver' || !LOC_SRV_OFF || document.hidden || Date.now() - locChkAt < 300000) return;
+  if (!LOC_ON || MODE !== 'driver' || !LOC_SRV_OFF || Date.now() - locChkAt < 300000) return;   // locfix1028: 화면 꺼져 있어도 확인 (관리자 운행 버튼 반영)
   locChkAt = Date.now();
-  api('trackState', {}).then(r => { if (r && r.ok && r.track) { LOC_SRV_OFF = false; LOC_LAST_BTN = Date.now(); locTrkShow(); } }).catch(() => {});
+  api('trackState', {}).then(r => { if (r && r.ok && r.track) { LOC_SRV_OFF = false; LOC_LAST_BTN = Date.now(); locLastSent = 0; locTrkShow(); locSend('open'); } }).catch(() => {});   // locfix1028: 켜지면 즉시 1점 전송
 }
 const locHasRun = () => { const p = getProg(); return Object.values(data || {}).some(items => items.some(x => !x.cancelled && p[rkOf(x)] === 'run')); };
 function locSend(ev) {
